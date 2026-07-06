@@ -1,0 +1,83 @@
+# Zoustec AR LINE Platform — local/dev stack
+#
+# Services:
+#   db        PostgreSQL 16 + PostGIS 3 (GPS radius checks via PostGIS)
+#   db-test   throwaway DB for pytest (profile: test)
+#   backend   FastAPI (built from deploy/backend.Dockerfile)
+#
+# Frontend (nextjs-zoustec) runs natively for now:  cd nextjs-zoustec && npm run dev
+#
+# Dev quickstart (DB only, run backend natively for hot-reload):
+#   docker compose -f deploy/docker-compose.yml up -d db
+#
+# Backend in Docker too:
+#   docker compose -f deploy/docker-compose.yml up --build -d db backend
+#
+# NOTE: shares host ports 5433/5434/8000 with the old `zoustec-ar-platform`
+# stack (AR platform/) — don't run both at the same time.
+
+name: zoustec-ar-line
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: zoustec
+      POSTGRES_PASSWORD: zoustec_dev_password
+      POSTGRES_DB: zoustec
+    ports:
+      - "5433:5432" # 5433 on host to avoid clashing with a local Postgres
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zoustec -d zoustec"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Separate throwaway DB for backend tests (no volume: data is ephemeral).
+  db-test:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: zoustec
+      POSTGRES_PASSWORD: zoustec_test_password
+      POSTGRES_DB: zoustec_test
+    ports:
+      - "5434:5432"
+    profiles: ["test"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zoustec -d zoustec_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/backend.Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://zoustec:zoustec_dev_password@db:5432/zoustec
+      APP_DATABASE_URL: postgresql+asyncpg://zoustec_app:zoustec_app_password@db:5432/zoustec
+      JWT_SECRET: change-me-in-production
+      AUTH_DEV_MODE: "true"
+      CORS_ORIGINS: http://localhost:3000,http://localhost
+      RUN_MIGRATIONS_ON_START: "true"
+      SEED_ON_START: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: sync+restart
+          path: ../backend/app
+          target: /app/app
+        - action: sync+restart
+          path: ../backend/alembic
+          target: /app/alembic
+        - action: rebuild
+          path: ../backend/requirements.txt
+
+volumes:
+  db-data:

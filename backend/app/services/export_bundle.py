@@ -1,0 +1,235 @@
+"""Headless template export (spec §3).
+
+Model: detachable UI shell + ALL logic stays on the platform. The bundle is a
+static microsite (single index.html, zero build tools) that calls the platform
+API with a scoped export key for event data, and the normal auth/task endpoints
+for the end-user flow. What it can and cannot do is documented in the bundled
+README (and docs/template-export.md).
+"""
+
+import io
+import json
+import zipfile
+
+
+def build_bundle_zip(
+    *,
+    api_base: str,
+    event_id: str,
+    event_name: str,
+    tenant_slug: str,
+    export_key: str,
+) -> bytes:
+    config = {
+        "API_BASE": api_base.rstrip("/"),
+        "EVENT_ID": event_id,
+        "TENANT_SLUG": tenant_slug,
+        "EXPORT_KEY": export_key,
+    }
+    files = {
+        "index.html": _INDEX_HTML,
+        "config.js": "window.ZOUSTEC_CONFIG = " + json.dumps(config, indent=2) + ";\n",
+        "README.md": _README.format(event_name=event_name, api_base=api_base),
+    }
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, content in files.items():
+            zf.writestr(name, content)
+    return buf.getvalue()
+
+
+_README = """# {event_name} — headless export bundle
+
+A standalone microsite for this event. **All business logic stays on the
+Zoustec platform** — this bundle is a detachable UI shell that calls the
+platform API.
+
+## Run
+
+Serve the folder over HTTP(S) anywhere (any static host):
+
+    python3 -m http.server 8080
+    # open http://localhost:8080
+
+⚠️ The platform must allow your host in its CORS configuration
+(`CORS_ORIGINS`). Ask the platform operator to add your origin.
+
+## What this bundle CAN do
+- Show live event info, branding, and type-specific content (from the platform API)
+- Sign users in (LINE ID token, or dev name when the platform runs in dev mode)
+- Run the task flow: QR code entry + GPS check → collect stamps → progress & reward
+
+## What it CANNOT do (by design — logic stays on the platform)
+- Work offline or with the platform down
+- Verify QR/GPS locally, issue stamps, or store any data itself
+- Run the in-page AR experience (WebAR assets/tracking are served by the
+  platform; the AR step opens the platform task page)
+- Access other events or other tenants (the export key is scoped to this event,
+  read-only, and revocable by the tenant admin)
+
+Platform API: {api_base}
+"""
+
+
+# Single-file microsite. Vanilla JS, no build step, ~white-label styled from
+# the branding payload. Kept deliberately small and readable.
+_INDEX_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Event</title>
+<script src="./config.js"></script>
+<style>
+  :root { --brand: #06c755; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: #f7f8fa; color: #16202b; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 16px 16px 48px; }
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: #fff; border-bottom: 1px solid #eef1f4; }
+  header img { height: 28px; }
+  .mark { width: 24px; height: 24px; border-radius: 7px; background: var(--brand); }
+  .card { background: #fff; border: 1px solid #e3e5e8; border-radius: 12px; padding: 16px; margin: 12px 0; }
+  .muted { color: #667; font-size: 13px; }
+  .badge { background: #eef1f4; border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 600; }
+  button { background: var(--brand); color: #fff; border: 0; border-radius: 10px; padding: 11px 16px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  button.ghost { background: #f2f4f6; color: #223; border: 1px solid #d8dce0; }
+  input { width: 100%; border: 1px solid #d8dce0; border-radius: 10px; padding: 10px 12px; font-size: 15px; margin: 4px 0 8px; }
+  .bar { background: #eef1f4; border-radius: 999px; height: 10px; } .bar > div { background: var(--brand); height: 10px; border-radius: 999px; }
+  .err { background: #fdecec; color: #b3261e; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin: 8px 0; }
+  .ok { background: #e8f8ee; color: #0b6b34; border-radius: 10px; padding: 10px 12px; font-size: 14px; margin: 8px 0; }
+  .notice { background: #fff8eb; border: 1px solid #f5c76f; } .notice ul { margin: 8px 0 0; padding-left: 20px; }
+  footer { text-align: center; padding: 14px; font-size: 12px; color: #98a1ab; }
+  table { width: 100%; font-size: 14px; border-collapse: collapse; } td { padding: 5px 0; }
+</style>
+</head>
+<body>
+<header id="hdr"><span class="mark"></span><strong id="hdr-name">Loading…</strong></header>
+<div class="wrap" id="app"><p class="muted">Loading event…</p></div>
+<footer id="foot" hidden>Powered by <strong>Zoustec</strong></footer>
+<script>
+const C = window.ZOUSTEC_CONFIG;
+let DATA = null, TOKEN = localStorage.getItem("zx.token") || null;
+
+const h = (html) => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content; };
+const app = document.getElementById("app");
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function api(path, opts = {}) {
+  const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+  if (opts.exportKey) headers["X-Export-Key"] = C.EXPORT_KEY;
+  if (opts.auth && TOKEN) headers["Authorization"] = "Bearer " + TOKEN;
+  const r = await fetch(C.API_BASE + path, { ...opts, headers });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((body.error && body.error.message) || ("HTTP " + r.status));
+  return body;
+}
+
+function applyBranding(b) {
+  if (b.theme_color) document.documentElement.style.setProperty("--brand", b.theme_color);
+  document.title = DATA.event.name;
+  document.getElementById("hdr-name").textContent = b.tenant_name;
+  if (b.logo_url) document.getElementById("hdr").replaceChild(
+    Object.assign(document.createElement("img"), { src: b.logo_url }),
+    document.querySelector(".mark"));
+  document.getElementById("foot").hidden = !b.show_powered_by;
+}
+
+function sectionHtml(s) {
+  if (s.type === "notice") return `<div class="card notice"><strong>⚠️ ${esc(s.title)}</strong><ul>${(s.items||[]).map(i=>`<li>${esc(i)}</li>`).join("")}</ul></div>`;
+  if (s.type === "info-list") return `<div class="card"><strong>${esc(s.title)}</strong><table>${(s.items||[]).map(r=>`<tr><td class="muted">${esc(r.label)}</td><td><strong>${esc(r.value)}</strong></td></tr>`).join("")}</table></div>`;
+  if (s.type === "places") return `<div class="card"><strong>${esc(s.title)}</strong>${(s.items||[]).map(p=>`<div style="margin-top:8px"><div><strong>${esc(p.name)}</strong></div><div class="muted">${esc(p.description||"")}</div></div>`).join("")}</div>`;
+  if (s.type === "text") return `<div class="card"><strong>${esc(s.title)}</strong>${(s.paragraphs||[]).map(p=>`<p style="font-size:14px">${esc(p)}</p>`).join("")}</div>`;
+  return "";
+}
+
+async function render() {
+  const e = DATA.event;
+  let progressHtml = "";
+  if (TOKEN) {
+    try {
+      const p = await api(`/api/me/events/${e.id}/progress`, { auth: true });
+      DATA.progress = p;
+      progressHtml = `<div class="card"><strong>${p.stamps_collected} / ${p.reward_threshold} stamps</strong>
+        <div class="bar" style="margin-top:8px"><div style="width:${Math.min(100, p.stamps_collected/p.reward_threshold*100)}%"></div></div>
+        ${p.reward_unlocked ? `<p class="ok">🎁 ${esc(e.reward_name)} — ${esc(e.reward_description)}</p>` : ""}</div>`;
+    } catch { TOKEN = null; localStorage.removeItem("zx.token"); }
+  }
+
+  const login = TOKEN ? "" : `<div class="card"><strong>Sign in</strong>
+    <p class="muted">Enter a name (dev mode) or paste a LINE ID token.</p>
+    <input id="login-name" placeholder="Your name / LINE ID token">
+    <div id="login-err"></div><button onclick="doLogin()">Sign in</button></div>`;
+
+  const done = new Set(DATA.progress ? DATA.progress.completed_task_ids : []);
+  const tasks = DATA.tasks.map(t => `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <strong>${done.has(t.id) ? "✅" : "⭕"} ${esc(t.name)}</strong><span class="badge">${t.verification_type.toUpperCase()}</span>
+    </div>
+    <p class="muted">${esc(t.description)}</p>
+    ${TOKEN && !done.has(t.id) ? taskForm(t) : ""}
+  </div>`).join("");
+
+  app.replaceChildren(h(`
+    <p class="muted"><span class="badge">${esc(e.event_type)}</span></p>
+    <h1 style="margin:4px 0">${esc(e.name)}</h1>
+    <p class="muted">${esc(e.description)}</p>
+    ${progressHtml}
+    ${(e.config.sections || []).map(sectionHtml).join("")}
+    ${login}
+    <h2 style="font-size:18px">Checkpoints</h2>
+    ${tasks}
+    <p class="muted">AR experience: open this task inside the event site / LINE —
+      <a href="${C.API_BASE}/${C.TENANT_SLUG}" target="_blank">open platform site ↗</a></p>
+  `));
+}
+
+function taskForm(t) {
+  const qr = (t.verification_type === "qr" || t.verification_type === "hybrid")
+    ? `<input id="qr-${t.id}" placeholder="QR code from the checkpoint">` : "";
+  const gps = (t.verification_type === "gps" || t.verification_type === "hybrid")
+    ? `<button class="ghost" onclick="getGps('${t.id}')">📍 Use my position</button> <span id="gps-state-${t.id}" class="muted"></span><br><br>` : "";
+  return `${qr}${gps}<div id="err-${t.id}"></div><button onclick="complete('${t.id}','${t.verification_type}')">Collect stamp</button>`;
+}
+
+const GPS = {};
+window.getGps = (id) => {
+  navigator.geolocation.getCurrentPosition(
+    (pos) => { GPS[id] = { lat: pos.coords.latitude, lng: pos.coords.longitude }; document.getElementById("gps-state-"+id).textContent = "position ✓"; },
+    (err) => { document.getElementById("err-"+id).innerHTML = `<div class="err">GPS: ${esc(err.message)}</div>`; });
+};
+
+window.doLogin = async () => {
+  const v = document.getElementById("login-name").value.trim();
+  if (!v) return;
+  const idToken = v.includes(".") || v.startsWith("dev::") ? v : "dev::" + v.toLowerCase().replace(/[^a-z0-9]+/g, "-") + "::" + v;
+  try {
+    const s = await api("/api/auth/line", { method: "POST", body: JSON.stringify({ id_token: idToken, tenant_slug: C.TENANT_SLUG }) });
+    TOKEN = s.access_token; localStorage.setItem("zx.token", TOKEN); render();
+  } catch (e) { document.getElementById("login-err").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+};
+
+window.complete = async (id, vtype) => {
+  const payload = {};
+  const qrEl = document.getElementById("qr-" + id);
+  if (qrEl) payload.qr_code = qrEl.value.trim();
+  if (GPS[id]) { payload.lat = GPS[id].lat; payload.lng = GPS[id].lng; }
+  try {
+    await api(`/api/me/tasks/${id}/complete`, { method: "POST", auth: true, body: JSON.stringify(payload) });
+    render();
+  } catch (e) { document.getElementById("err-" + id).innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+};
+
+(async () => {
+  try {
+    DATA = await api(`/api/headless/events/${C.EVENT_ID}`, { exportKey: true });
+    applyBranding(DATA.branding);
+    await render();
+  } catch (e) {
+    app.replaceChildren(h(`<div class="err">Could not load event: ${esc(e.message)}<br>
+      Check API_BASE/EXPORT_KEY in config.js and the platform CORS settings.</div>`));
+  }
+})();
+</script>
+</body>
+</html>
+"""

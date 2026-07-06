@@ -1,0 +1,24 @@
+{
+  "name": "zoustec-ar-platform",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@line/liff": "^2.29.1",
+    "lucide-react": "0.441.0",
+    "mind-ar": "1.2.5",
+    "next": "14.2.5",
+    "qrcode": "^1.5.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "three": "0.149.0"
+  },
+  "overrides": {
+    "canvas": "file:./vendor/canvas-stub"
+  }
+}

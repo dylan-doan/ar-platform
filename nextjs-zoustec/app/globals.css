@@ -1,0 +1,575 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ════════════════════════════════════════════════════════════════════════
+   COLORS — Expense Management
+   Base palettes (raw scales) + semantic aliases (role-based).
+   Primary is a professional teal-blue anchored at #0E7490.
+   ════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Primary: teal-blue brand ramp ─────────────────────────────────── */
+  --primary-50:  #ECFAFE;
+  --primary-100: #D0F1FB;
+  --primary-200: #A6E3F5;
+  --primary-300: #6FCDE8;
+  --primary-400: #38B0D6;
+  --primary-500: #1492B8;
+  --primary-600: #0E7490;  /* brand anchor */
+  --primary-700: #115E76;
+  --primary-800: #134E61;
+  --primary-900: #143F50;
+  --primary-950: #0B2935;
+
+  /* White-label palette — TenantBrand/applyBrand ghi đè theo màu khách thuê
+     (spec §VIII). Defaults = teal nền tảng. */
+  --brand: var(--primary-600);
+  --brand-dark: var(--primary-800);
+  --brand-light: #6FCDE8;
+  --brand-hero-a: #134E61;
+  --brand-hero-b: #0B2935;
+
+  /* ── Neutral: cool slate ───────────────────────────────────────────── */
+  --neutral-0:   #FFFFFF;
+  --neutral-50:  #F7F9FB;
+  --neutral-100: #EEF2F6;
+  --neutral-200: #E2E8F0;
+  --neutral-300: #CBD5E1;
+  --neutral-400: #94A3B8;
+  --neutral-500: #64748B;
+  --neutral-600: #475569;
+  --neutral-700: #334155;
+  --neutral-800: #1E293B;
+  --neutral-900: #0F1B2D;
+  --neutral-950: #080F1A;
+
+  /* ── Semantic hues ─────────────────────────────────────────────────── */
+  /* Success — approvals, paid, positive deltas */
+  --success-50:  #ECFDF5;
+  --success-100: #D1FAE5;
+  --success-500: #10B981;
+  --success-600: #059669;
+  --success-700: #047857;
+
+  /* Warning — pending, attention */
+  --warning-50:  #FFFBEB;
+  --warning-100: #FEF3C7;
+  --warning-500: #F59E0B;
+  --warning-600: #D97706;
+  --warning-700: #B45309;
+
+  /* Danger — rejected, over-budget, destructive */
+  --danger-50:   #FEF2F2;
+  --danger-100:  #FEE2E2;
+  --danger-500:  #EF4444;
+  --danger-600:  #DC2626;
+  --danger-700:  #B91C1C;
+
+  /* Info — neutral notices, AI/chatbot accent */
+  --info-50:  #EFF6FF;
+  --info-100: #DBEAFE;
+  --info-500: #3B82F6;
+  --info-600: #2563EB;
+  --info-700: #1D4ED8;
+
+  /* ── Cashflow: Income (Thu) green ramp ─────────────────────────────── */
+  --income-50:  #EFFDF4;
+  --income-100: #D7F9E3;
+  --income-200: #B0F1CB;
+  --income-500: #1FB257;
+  --income-600: #16A34A;  /* Thu anchor */
+  --income-700: #15803D;
+  --income-800: #166534;
+
+  /* ── Cashflow: Expense (Chi) red ramp ──────────────────────────────── */
+  --expense-50:  #FEF2F2;
+  --expense-100: #FEE2E2;
+  --expense-200: #FECACA;
+  --expense-500: #EF4444;
+  --expense-600: #DC2626;  /* Chi anchor */
+  --expense-700: #B91C1C;
+  --expense-800: #991B1B;
+
+  /* ════════════════════════════════════════════════════════════════════
+     SEMANTIC ALIASES — light theme (default)
+     ════════════════════════════════════════════════════════════════════ */
+
+  /* Surfaces */
+  --surface-app:     var(--neutral-50);    /* page background */
+  --surface-card:    var(--neutral-0);     /* cards, panels */
+  --surface-raised:  var(--neutral-0);     /* popovers, dialogs */
+  --surface-sunken:  var(--neutral-100);   /* wells, inputs idle */
+  --surface-inverse: var(--neutral-900);
+  --surface-hover:   var(--neutral-100);
+  --surface-active:  var(--neutral-200);
+  --surface-brand-subtle: var(--primary-50);
+
+  /* Sidebar (always deep brand in both themes) */
+  --sidebar-bg:        var(--primary-950);
+  --sidebar-fg:        #B6D4DE;
+  --sidebar-fg-strong: var(--neutral-0);
+  --sidebar-active-bg: var(--primary-700);
+  --sidebar-hover-bg:  rgba(255, 255, 255, 0.06);
+
+  /* Text */
+  --text-strong:   var(--neutral-900);
+  --text-body:     var(--neutral-700);
+  --text-muted:    var(--neutral-500);
+  --text-subtle:   var(--neutral-400);
+  --text-on-brand: var(--neutral-0);
+  --text-link:     var(--primary-600);
+
+  /* Borders */
+  --border-subtle:  var(--neutral-200);
+  --border-default: var(--neutral-300);
+  --border-strong:  var(--neutral-400);
+  --border-brand:   var(--primary-600);
+  --focus-ring:     var(--primary-500);
+
+  /* Brand actions */
+  --action-bg:        var(--primary-600);
+  --action-bg-hover:  var(--primary-700);
+  --action-bg-active: var(--primary-800);
+  --action-fg:        var(--neutral-0);
+
+  /* Status pairs (bg / fg) */
+  --status-success-bg: var(--success-50);
+  --status-success-fg: var(--success-700);
+  --status-warning-bg: var(--warning-50);
+  --status-warning-fg: var(--warning-700);
+  --status-danger-bg:  var(--danger-50);
+  --status-danger-fg:  var(--danger-700);
+  --status-info-bg:    var(--info-50);
+  --status-info-fg:    var(--info-700);
+  --status-neutral-bg: var(--neutral-100);
+  --status-neutral-fg: var(--neutral-600);
+
+  /* ── Cashflow semantic aliases (the core money convention) ─────────── */
+  /* Thu = income/inflow = green · Chi = expense/outflow = red */
+  --income-fg:      var(--income-700);   /* "+12.000.000 ₫" text */
+  --income-strong:  var(--income-600);   /* bars, icons, accents */
+  --income-bg:      var(--income-50);    /* tinted row/chip bg */
+  --income-border:  var(--income-200);
+
+  --expense-fg:     var(--expense-700);
+  --expense-strong: var(--expense-600);
+  --expense-bg:     var(--expense-50);
+  --expense-border: var(--expense-200);
+
+  --balance-fg:     var(--text-strong);  /* net balance / số dư */
+  --balance-line:   var(--primary-600);  /* balance line on charts */
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   DARK THEME — opt in via [data-theme="dark"] on a wrapper or <html>
+   ════════════════════════════════════════════════════════════════════════ */
+
+[data-theme="dark"] {
+  --surface-app:     var(--neutral-950);
+  --surface-card:    var(--neutral-900);
+  --surface-raised:  var(--neutral-800);
+  --surface-sunken:  #0C1726;
+  --surface-inverse: var(--neutral-100);
+  --surface-hover:   rgba(255, 255, 255, 0.04);
+  --surface-active:  rgba(255, 255, 255, 0.08);
+  --surface-brand-subtle: rgba(14, 116, 144, 0.18);
+
+  --sidebar-bg:        #061E26;
+  --sidebar-fg:        #8FB6C2;
+  --sidebar-fg-strong: var(--neutral-0);
+  --sidebar-active-bg: var(--primary-700);
+  --sidebar-hover-bg:  rgba(255, 255, 255, 0.05);
+
+  --text-strong:   var(--neutral-50);
+  --text-body:     var(--neutral-300);
+  --text-muted:    var(--neutral-400);
+  --text-subtle:   var(--neutral-500);
+  --text-on-brand: var(--neutral-0);
+  --text-link:     var(--primary-300);
+
+  --border-subtle:  rgba(255, 255, 255, 0.07);
+  --border-default: rgba(255, 255, 255, 0.12);
+  --border-strong:  rgba(255, 255, 255, 0.20);
+  --border-brand:   var(--primary-400);
+  --focus-ring:     var(--primary-400);
+
+  --action-bg:        var(--primary-500);
+  --action-bg-hover:  var(--primary-400);
+  --action-bg-active: var(--primary-600);
+  --action-fg:        var(--neutral-950);
+
+  --status-success-bg: rgba(16, 185, 129, 0.14);
+  --status-success-fg: #6EE7B7;
+  --status-warning-bg: rgba(245, 158, 11, 0.14);
+  --status-warning-fg: #FCD34D;
+  --status-danger-bg:  rgba(239, 68, 68, 0.14);
+  --status-danger-fg:  #FCA5A5;
+  --status-info-bg:    rgba(59, 130, 246, 0.16);
+  --status-info-fg:    #93C5FD;
+  --status-neutral-bg: rgba(255, 255, 255, 0.06);
+  --status-neutral-fg: var(--neutral-300);
+
+  /* Cashflow — dark */
+  --income-fg:      #6EE7A8;
+  --income-strong:  #22C55E;
+  --income-bg:      rgba(34, 197, 94, 0.14);
+  --income-border:  rgba(34, 197, 94, 0.28);
+  --expense-fg:     #FCA5A5;
+  --expense-strong: #F05252;
+  --expense-bg:     rgba(239, 68, 68, 0.14);
+  --expense-border: rgba(239, 68, 68, 0.28);
+  --balance-fg:     var(--neutral-50);
+  --balance-line:   var(--primary-300);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   TYPOGRAPHY — Expense Management
+   Plus Jakarta Sans for everything UI; JetBrains Mono for figures/IDs.
+   Scale is a balanced 1.20 (minor third) ramp for a data-dense app.
+   ════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Families */
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, 'Segoe UI',
+               'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo,
+               Consolas, monospace;
+
+  /* Weights */
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+  --weight-extra:    800;
+
+  /* Type scale (px → rem at 16px base) */
+  --text-2xs: 0.6875rem; /* 11 — micro labels, table meta */
+  --text-xs:  0.75rem;   /* 12 — captions, badges */
+  --text-sm:  0.875rem;  /* 14 — body small, table cells */
+  --text-md:  1rem;      /* 16 — base body */
+  --text-lg:  1.125rem;  /* 18 — emphasized body, card titles */
+  --text-xl:  1.375rem;  /* 22 — section headings */
+  --text-2xl: 1.75rem;   /* 28 — page titles */
+  --text-3xl: 2.25rem;   /* 36 — display / hero numbers */
+  --text-4xl: 3rem;      /* 48 — marketing display */
+
+  /* Line heights */
+  --leading-tight:   1.15;
+  --leading-snug:    1.3;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.65;
+
+  /* Letter spacing */
+  --tracking-tight:  -0.02em;
+  --tracking-snug:   -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide:   0.04em;  /* uppercase eyebrows */
+
+  /* Numeric — finance figures stay tabular & lined */
+  --numeric-tabular: tabular-nums lining-nums; /* @kind other */
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   SPACING, RADII, SHADOWS, MOTION, LAYOUT — Expense Management
+   4px base grid. Soft shadows, gentle radii (6–8px), calm motion.
+   ════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Spacing — 4px grid */
+  --space-0:  0;
+  --space-1:  0.25rem;  /* 4  */
+  --space-2:  0.5rem;   /* 8  */
+  --space-3:  0.75rem;  /* 12 */
+  --space-4:  1rem;     /* 16 */
+  --space-5:  1.25rem;  /* 20 */
+  --space-6:  1.5rem;   /* 24 */
+  --space-8:  2rem;     /* 32 */
+  --space-10: 2.5rem;   /* 40 */
+  --space-12: 3rem;     /* 48 */
+  --space-16: 4rem;     /* 64 */
+  --space-20: 5rem;     /* 80 */
+
+  /* Radii — gentle, soft corners */
+  --radius-xs:   3px;
+  --radius-sm:   5px;
+  --radius-md:   8px;   /* default: inputs, buttons, badges */
+  --radius-lg:   12px;  /* cards, panels */
+  --radius-xl:   16px;  /* large surfaces, modals */
+  --radius-2xl:  24px;  /* hero / marketing blocks */
+  --radius-full: 9999px;
+
+  /* Shadows — soft, low-spread, cool tint */
+  --shadow-xs: 0 1px 2px rgba(15, 27, 45, 0.06);
+  --shadow-sm: 0 1px 3px rgba(15, 27, 45, 0.08), 0 1px 2px rgba(15, 27, 45, 0.04);
+  --shadow-md: 0 4px 12px rgba(15, 27, 45, 0.08), 0 2px 4px rgba(15, 27, 45, 0.04);
+  --shadow-lg: 0 12px 28px rgba(15, 27, 45, 0.12), 0 4px 8px rgba(15, 27, 45, 0.05);
+  --shadow-xl: 0 24px 48px rgba(15, 27, 45, 0.16), 0 8px 16px rgba(15, 27, 45, 0.06);
+
+  /* Focus ring */
+  --ring-width: 3px;
+  --ring-offset: 2px;
+
+  /* Motion — calm, professional easing */
+  --ease-standard:  cubic-bezier(0.2, 0, 0, 1); /* @kind other */
+  --ease-emphasized: cubic-bezier(0.3, 0, 0, 1); /* @kind other */
+  --ease-out:       cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */
+  --duration-fast:   120ms; /* @kind other */
+  --duration-normal: 200ms; /* @kind other */
+  --duration-slow:   320ms; /* @kind other */
+
+  /* Layout chrome */
+  --sidebar-width:        260px;
+  --sidebar-width-collapsed: 72px;
+  --topbar-height:        64px;
+  --content-max:          1280px;
+  --container-pad:        var(--space-8);
+}
+
+[data-theme="dark"] {
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.55), 0 4px 8px rgba(0, 0, 0, 0.35);
+  --shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.6), 0 8px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   BASE — light reset + element defaults wired to tokens.
+   Optional for consumers, but keeps demos and cards consistent.
+   ════════════════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  font-weight: var(--weight-regular);
+  color: var(--text-body);
+  background: var(--surface-app);
+  font-feature-settings: "cv11", "ss01";
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  color: var(--text-strong);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+}
+
+p { margin: 0; }
+
+a {
+  color: var(--text-link);
+  text-decoration: none;
+}
+a:hover { text-decoration: underline; }
+
+button { font-family: inherit; }
+
+/* Tabular figures helper for amounts, IDs, tables */
+.num {
+  font-variant-numeric: var(--numeric-tabular);
+  font-feature-settings: "tnum";
+}
+
+/* Uppercase eyebrow / section label */
+.eyebrow {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+:focus-visible {
+  outline: var(--ring-width) solid var(--focus-ring);
+  outline-offset: var(--ring-offset);
+  border-radius: var(--radius-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---- App canvas ---- */
+body {
+  background: var(--surface-app);
+  font-family: var(--font-sans), 'Noto Sans TC';
+  -webkit-font-smoothing: antialiased;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--neutral-300); border-radius: 9999px; }
+a:hover { text-decoration: none; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   APP SHELL — full-screen app layout (sidebar + content) with responsive
+   collapse to a bottom navigation bar on mobile. Shared by dashboard/console.
+   ════════════════════════════════════════════════════════════════════════ */
+
+.app-shell {
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--surface-app);
+  overflow: hidden;
+}
+
+.app-sidebar {
+  width: 248px;
+  flex: 0 0 auto;
+  background: var(--sidebar-bg);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 14px;
+  overflow-y: auto;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-content {
+  flex: 1;
+  overflow: auto;
+  padding: 24px 26px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Bottom nav is hidden on desktop; the sidebar handles navigation there. */
+.app-bottom-nav { display: none; }
+
+/* Horizontal-scroll wrapper for wide tables on small screens. */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* ── Tablet / mobile ─────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .app-sidebar { display: none; }
+
+  .app-content {
+    padding: 16px 14px calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Sidebar becomes a fixed bottom navigation bar. */
+  .app-bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+    height: calc(64px + env(safe-area-inset-bottom, 0px));
+    padding: 6px 6px env(safe-area-inset-bottom, 0px);
+    background: var(--sidebar-bg);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    align-items: flex-start;
+    justify-content: space-around;
+  }
+  .app-bottom-nav .bn-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 8px 4px 0;
+    color: var(--sidebar-fg);
+    font-size: 10px;
+    font-weight: 600;
+    text-decoration: none;
+    flex: 1;
+    min-width: 0;
+  }
+  .app-bottom-nav .bn-item.active { color: var(--primary-300); }
+
+  /* Grids that must collapse on mobile. */
+  .grid-kpi { grid-template-columns: repeat(2, 1fr) !important; }
+  .grid-split { grid-template-columns: 1fr !important; }
+
+  /* Header cluster wraps instead of overflowing. */
+  .app-topbar { flex-wrap: wrap; height: auto !important; padding: 12px 16px !important; }
+}
+
+@media (max-width: 460px) {
+  .grid-kpi { grid-template-columns: 1fr !important; }
+}
+
+@media (max-width: 768px) {
+  .hide-mobile { display: none !important; }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   FULL-BLEED PAGE — for portal (public site) and builder/ar-studio editors
+   that fill the viewport width without the browser-frame mockup.
+   ════════════════════════════════════════════════════════════════════════ */
+.page-full { width: 100%; min-height: 100vh; min-height: 100dvh; background: var(--surface-app); }
+
+/* ════════════════════════════════════════════════════════════════════════
+   EDITOR SHELL — 3-column editor layout (builder, ar-studio):
+   toolbar on top, side panels + canvas below. Panels stack on mobile.
+   ════════════════════════════════════════════════════════════════════════ */
+.editor-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--surface-sunken);
+}
+.editor-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+.editor-aside { overflow: auto; }
+.editor-canvas { flex: 1; min-width: 0; overflow: auto; }
+
+@media (max-width: 900px) {
+  .editor-shell { height: auto; min-height: 100dvh; }
+  .editor-body { flex-direction: column; overflow: visible; }
+  .editor-aside {
+    width: 100% !important;
+    flex: 0 0 auto !important;
+    border-right: none !important;
+    border-left: none !important;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .editor-canvas { min-height: 480px; overflow: visible; }
+  /* Toolbar rows wrap on small screens. */
+  .editor-topbar { flex-wrap: wrap; height: auto !important; padding: 10px 14px !important; row-gap: 10px; }
+  .editor-topbar .hide-mobile { display: none !important; }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   MOBILE VIEWPORT — for the LINE LIFF experience flow. Centres a phone-width
+   column on desktop, goes edge-to-edge on real phones.
+   ════════════════════════════════════════════════════════════════════════ */
+.mobile-viewport {
+  width: 100%;
+  max-width: 440px;
+  margin: 0 auto;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: var(--surface-app);
+  box-shadow: var(--shadow-lg);
+}
+@media (max-width: 460px) {
+  .mobile-viewport { box-shadow: none; max-width: 100%; }
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }

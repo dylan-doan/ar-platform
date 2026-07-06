@@ -1,0 +1,49 @@
+# Render Blueprint — Zoustec AR LINE Platform
+# Deploy: Render Dashboard → New → Blueprint → chọn repo này.
+# DB: Neon.tech free (PostgreSQL + PostGIS) — điền connection string vào env.
+#
+# Sau lần deploy đầu:
+#   1. Copy URL backend (https://zoustec-backend-xxxx.onrender.com)
+#      → điền vào BACKEND_INTERNAL_URL + CORS_ORIGINS → redeploy frontend.
+#   2. Cập nhật LIFF Endpoint URL = URL frontend (lần cuối cùng!).
+
+services:
+  - type: web
+    name: zoustec-backend
+    runtime: docker
+    dockerfilePath: ./deploy/backend.Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /healthz
+    dockerCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL          # Neon: postgresql+asyncpg://user:pass@host/db?ssl=require
+        sync: false
+      - key: APP_DATABASE_URL      # Neon: role zoustec_app (migration 0001 tự tạo)
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: LINE_CHANNEL_ID
+        value: "2010613964"
+      - key: AUTH_DEV_MODE         # PoC: giữ true để demo dev-login; TẮT khi bàn giao
+        value: "true"
+      - key: RUN_MIGRATIONS_ON_START
+        value: "true"
+      - key: SEED_ON_START
+        value: "true"
+      - key: CORS_ORIGINS          # URL frontend sau khi có (vd https://zoustec-frontend.onrender.com)
+        sync: false
+
+  - type: web
+    name: zoustec-frontend
+    runtime: docker
+    dockerfilePath: ./deploy/frontend.Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: BACKEND_INTERNAL_URL  # URL backend ở trên (build arg cho rewrites + middleware)
+        sync: false
+      - key: NEXT_PUBLIC_LIFF_ID
+        value: "2010613964-3UzmddVV"
+      - key: NEXT_PUBLIC_TENANT_SLUG
+        value: "bnk"

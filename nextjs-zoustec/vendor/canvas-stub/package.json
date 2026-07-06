@@ -1,0 +1,6 @@
+{
+  "name": "canvas",
+  "version": "2.11.2",
+  "description": "No-op stub for canvas. MindAR only needs canvas for its Node-side offline target compiler; the browser AR runtime does not use it.",
+  "main": "index.js"
+}
