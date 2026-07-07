@@ -14,7 +14,7 @@ from sqlalchemy import select
 from app.api.deps import AuthContext, tenant_admin_context
 from app.core.config import get_settings
 from app.core.errors import ApiError
-from app.models import Model3DJob
+from app.models import MediaAsset, Model3DJob
 from app.providers.model3d import get_model3d_provider
 from app.schemas import Model3DAdjustRequest, Model3DJobOut
 from app.services.audit import record_audit
@@ -129,16 +129,19 @@ async def upload_target(
     if len(data) > MAX_TARGET_BYTES:
         raise ApiError(422, "target_too_large", "Target must be ≤ 5 MB.")
 
-    settings = get_settings()
-    tenant_dir = os.path.join(settings.media_dir, str(ctx.identity.tenant_id))
-    os.makedirs(tenant_dir, exist_ok=True)
-    path = os.path.join(tenant_dir, f"target-{job.id}.mind")
-    with open(path, "wb") as f:
-        f.write(data)
+    # In-DB storage: the AR camera loads this URL at every task mount, long
+    # after any given container's ephemeral disk has been reset.
+    asset = MediaAsset(
+        tenant_id=ctx.identity.tenant_id,
+        content_type="application/octet-stream",
+        data=data,
+    )
+    ctx.session.add(asset)
+    await ctx.session.flush()
 
     job.params = {
         **(job.params or {}),
-        "targetUrl": f"/media/{ctx.identity.tenant_id}/target-{job.id}.mind",
+        "targetUrl": f"/media/db/{asset.id}",
     }
     await record_audit(
         ctx.session,

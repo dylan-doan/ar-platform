@@ -17,7 +17,7 @@ from app.api.deps import AuthContext, tenant_admin_context
 from app.core.config import get_settings
 from app.api.headless import hash_export_key
 from app.core.errors import ApiError
-from app.models import Event, ExportKey, Member, RewardClaim, Stamp, Task, Tenant
+from app.models import Event, ExportKey, MediaAsset, Member, RewardClaim, Stamp, Task, Tenant
 from app.schemas import (
     BrandingOut,
     BrandingUpdate,
@@ -67,7 +67,10 @@ MAX_IMAGE_BYTES = 10 * 1024 * 1024
 async def upload_media(
     image: UploadFile, ctx: AuthContext = Depends(tenant_admin_context)
 ) -> dict:
-    """Tenant-scoped image upload (event hero, logo). Returns a /media URL."""
+    """Tenant-scoped image upload (event hero, logo). Returns a /media/db URL.
+
+    Bytes go into Postgres, not the filesystem — the hosting disk is ephemeral
+    (redeploys/spin-ups reset it), and uploads must outlive both."""
     if image.content_type not in ALLOWED_IMAGE_TYPES:
         raise ApiError(422, "unsupported_image", "Upload a PNG, JPEG or WebP image.")
     data = await image.read()
@@ -76,14 +79,16 @@ async def upload_media(
     if len(data) > MAX_IMAGE_BYTES:
         raise ApiError(422, "image_too_large", "Image must be ≤ 10 MB.")
 
-    settings = get_settings()
-    tenant_dir = os.path.join(settings.media_dir, str(ctx.identity.tenant_id))
-    os.makedirs(tenant_dir, exist_ok=True)
-    ext = ALLOWED_IMAGE_TYPES[image.content_type]
-    filename = f"img-{uuid.uuid4()}{ext}"
-    with open(os.path.join(tenant_dir, filename), "wb") as f:
-        f.write(data)
-    return {"url": f"/media/{ctx.identity.tenant_id}/{filename}"}
+    asset = MediaAsset(
+        tenant_id=ctx.identity.tenant_id,
+        content_type=image.content_type,
+        data=data,
+    )
+    ctx.session.add(asset)
+    await ctx.session.flush()
+    url = f"/media/db/{asset.id}"
+    await ctx.session.commit()
+    return {"url": url}
 
 
 # ------------------------------------------------------------------ tenant overview (UI screen 01)
@@ -444,6 +449,7 @@ async def get_branding(ctx: AuthContext = Depends(tenant_admin_context)) -> Bran
         theme_color=brand.get("theme_color"),
         show_powered_by=not brand.get("hide_powered_by", False),
         line_liff_id=tenant.line_liff_id,
+        custom_domain=tenant.custom_domain,
     )
 
 

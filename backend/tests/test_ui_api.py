@@ -218,3 +218,44 @@ async def test_public_event_site_payload(client, demo):
 
     missing = await client.get("/api/public/site/alpha/nope")
     assert missing.status_code == 404
+
+
+# ------------------------------------------------------------------ branding + in-DB media persistence
+
+
+async def test_branding_custom_domain_survives_reload(client, demo):
+    # Regression: GET /branding must echo custom_domain — the branding form
+    # reloads from it, and an omitted field looks like "domain lost" in the UI.
+    admin = await login(client, "alpha", "admin-a")
+    resp = await client.patch(
+        "/api/admin/branding",
+        headers=bearer(admin),
+        json={"custom_domain": "walk.alpha-city.tw"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["custom_domain"] == "walk.alpha-city.tw"
+
+    resp = await client.get("/api/admin/branding", headers=bearer(admin))
+    assert resp.status_code == 200
+    assert resp.json()["custom_domain"] == "walk.alpha-city.tw"
+
+
+async def test_media_upload_stored_in_db_and_served(client, demo):
+    # Uploads live in Postgres (hosting disk is ephemeral) — the returned URL
+    # must serve the exact bytes back with the right content type.
+    admin = await login(client, "alpha", "admin-a")
+    png = b"\x89PNG\r\n\x1a\n" + b"fakepixels" * 20
+    resp = await client.post(
+        "/api/admin/media",
+        headers=bearer(admin),
+        files={"image": ("hero.png", png, "image/png")},
+    )
+    assert resp.status_code == 201, resp.text
+    url = resp.json()["url"]
+    assert url.startswith("/media/db/")
+
+    resp = await client.get(url)
+    assert resp.status_code == 200
+    assert resp.content == png
+    assert resp.headers["content-type"] == "image/png"
+    assert "immutable" in resp.headers.get("cache-control", "")
