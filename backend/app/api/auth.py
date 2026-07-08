@@ -1,27 +1,34 @@
-"""Auth endpoints — LINE OIDC → platform session JWT (spec §5.6).
+"""Auth endpoints — LINE OIDC for players, email + password for back offices.
 
-POST /api/auth/line      end user / tenant admin login (tenant-scoped)
-POST /api/auth/platform  platform admin login (cross-tenant)
+POST /api/auth/line              end user (player) login via LINE (tenant-scoped)
+POST /api/auth/tenant/password   tenant admin login — console-provisioned account
+POST /api/auth/tenant/change-password  first-login (or routine) password change
+POST /api/auth/platform          platform admin login via LINE (cross-tenant)
+POST /api/auth/platform/password Zoustec console login
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 
+from app.api.deps import AuthContext, tenant_admin_context
 from app.core.config import get_settings
 from app.core.errors import ApiError
 from app.core.security import (
     ROLE_PLATFORM_ADMIN,
     TokenIdentity,
     create_session_token,
+    hash_password,
     verify_password,
 )
-from app.db.session import anonymous_session, tenant_session
+from app.db.session import anonymous_session, platform_admin_session, tenant_session
 from app.models import Member, PlatformAdmin, Tenant
 from app.schemas import (
+    ChangePasswordRequest,
     LineLoginRequest,
     PlatformLoginRequest,
     PlatformPasswordLoginRequest,
     SessionResponse,
+    TenantPasswordLoginRequest,
 )
 from app.services.audit import record_audit
 from app.services.line_oidc import verify_line_id_token
@@ -112,6 +119,95 @@ async def login_with_line(body: LineLoginRequest) -> SessionResponse:
             tenant_id=tenant.id,
             display_name=member.display_name,
         )
+
+
+@router.post("/tenant/password", response_model=SessionResponse)
+async def login_tenant_password(body: TenantPasswordLoginRequest) -> SessionResponse:
+    """Customer dashboard sign-in — email + password. Accounts are provisioned
+    by Zoustec from the platform console (temp password, forced change on
+    first login); customers never need LINE for admin work. Email is globally
+    unique, so the account row itself locates the tenant."""
+    email = body.email.strip().lower()
+    # Cross-tenant lookup by design: the login form has no tenant field.
+    async with platform_admin_session() as session:
+        row = (
+            await session.execute(
+                select(Member, Tenant)
+                .join(Tenant, Tenant.id == Member.tenant_id)
+                .where(Member.email == email)
+            )
+        ).one_or_none()
+
+    # One generic error for every failure mode — no account probing.
+    denied = ApiError(401, "invalid_credentials", "Email 或密碼不正確。")
+    if row is None:
+        raise denied
+    member, tenant = row
+    if (
+        member.role != "tenant_admin"
+        or not tenant.is_active
+        or not verify_password(body.password, member.password_hash)
+    ):
+        raise denied
+
+    identity = TokenIdentity(
+        subject_id=member.id, tenant_id=tenant.id, role=member.role
+    )
+    return SessionResponse(
+        access_token=create_session_token(identity),
+        expires_in_minutes=get_settings().jwt_expires_minutes,
+        role=member.role,
+        member_id=member.id,
+        tenant_id=tenant.id,
+        display_name=member.display_name,
+        must_change_password=member.must_change_password,
+    )
+
+
+@router.post("/tenant/change-password", response_model=SessionResponse)
+async def change_tenant_password(
+    body: ChangePasswordRequest,
+    ctx: AuthContext = Depends(tenant_admin_context),
+) -> SessionResponse:
+    """Password change for the signed-in tenant admin — used by the forced
+    first-login flow and available any time after. Returns a fresh session so
+    the client state (must_change_password) updates in one round-trip."""
+    member = (
+        await ctx.session.execute(
+            select(Member).where(Member.id == ctx.identity.subject_id)
+        )
+    ).scalar_one_or_none()
+    if member is None or member.password_hash is None:
+        raise ApiError(403, "forbidden", "此帳號不是密碼登入帳號。")
+    if not verify_password(body.current_password, member.password_hash):
+        raise ApiError(401, "invalid_credentials", "目前密碼不正確。")
+
+    member.password_hash = hash_password(body.new_password)
+    member.must_change_password = False
+    await record_audit(
+        ctx.session,
+        tenant_id=ctx.identity.tenant_id,
+        actor_type="tenant_admin",
+        actor_id=member.id,
+        action="member.password_changed",
+        entity_type="member",
+        entity_id=member.id,
+        data={},
+    )
+    await ctx.session.commit()
+
+    identity = TokenIdentity(
+        subject_id=member.id, tenant_id=ctx.identity.tenant_id, role=member.role
+    )
+    return SessionResponse(
+        access_token=create_session_token(identity),
+        expires_in_minutes=get_settings().jwt_expires_minutes,
+        role=member.role,
+        member_id=member.id,
+        tenant_id=ctx.identity.tenant_id,
+        display_name=member.display_name,
+        must_change_password=False,
+    )
 
 
 @router.post("/platform/password", response_model=SessionResponse)

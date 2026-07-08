@@ -20,6 +20,19 @@ class PlatformPasswordLoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=255)
 
 
+class TenantPasswordLoginRequest(BaseModel):
+    """Tenant-admin dashboard sign-in — accounts are provisioned from the
+    Zoustec console; email is globally unique so no tenant field is needed."""
+
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=255)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=255)
+    new_password: str = Field(min_length=8, max_length=255)
+
+
 class SessionResponse(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"
@@ -28,6 +41,9 @@ class SessionResponse(BaseModel):
     member_id: uuid.UUID
     tenant_id: uuid.UUID | None
     display_name: str
+    # Set on password accounts still holding their provisioning password —
+    # the frontend forces a password change before entering the dashboard.
+    must_change_password: bool = False
 
 
 # ---------------------------------------------------------------- tenants
@@ -52,6 +68,27 @@ class TenantOut(BaseModel):
     plan: str = "saas"
     mrr_ntd: int | None = None
     created_at: datetime
+
+
+class TenantAdminCreate(BaseModel):
+    """Console-provisioned customer admin account. The server generates a
+    temporary password (returned once) and forces a change on first login."""
+
+    email: str = Field(min_length=3, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    display_name: str = Field(min_length=1, max_length=255)
+
+
+class TenantAdminOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: str | None = None
+    display_name: str
+    role: str
+    must_change_password: bool = False
+    created_at: datetime
+    # Only present right after create / reset-password — never stored.
+    temp_password: str | None = None
 
 
 class TenantLiffProvisionRequest(BaseModel):

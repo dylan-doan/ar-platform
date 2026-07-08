@@ -57,6 +57,14 @@ export default function Page() {
   const [mgrError, setMgrError] = useState('');
   const [mgrFlash, setMgrFlash] = useState('');
   const [error, setError] = useState('');
+  // Customer admin accounts (provisioned here; email/password dashboard login)
+  const [mgrAdmins, setMgrAdmins] = useState(null);
+  const [newAdmin, setNewAdmin] = useState({ email: '', name: '' });
+  const [tempCred, setTempCred] = useState(null); // { email, password } — shown once
+  // New-tenant modal
+  const [newT, setNewT] = useState(null);     // { name, slug } | null
+  const [ntBusy, setNtBusy] = useState(false);
+  const [ntError, setNtError] = useState('');
 
   async function openManage(tenantId) {
     setMgrError('');
@@ -75,10 +83,70 @@ export default function Page() {
         mrr_ntd: t.mrr_ntd ?? '',
       });
       setMgrFlash('');
+      setMgrAdmins(null); setNewAdmin({ email: '', name: '' }); setTempCred(null);
+      loadAdmins(tenantId);
     } catch (e) {
       if (e instanceof AuthRequired) return router.replace(loginUrl('/zoustec/console', { platform: true }));
       setError(e.message);
     }
+  }
+
+  async function loadAdmins(tenantId) {
+    try {
+      setMgrAdmins(await platformApi(`/api/platform/tenants/${tenantId}/admins`));
+    } catch (e) {
+      if (e instanceof AuthRequired) return router.replace(loginUrl('/zoustec/console', { platform: true }));
+      setMgrError(e.message);
+    }
+  }
+
+  async function createAdmin() {
+    if (!mgr || mgrBusy) return;
+    if (!newAdmin.email.trim() || !newAdmin.name.trim()) return setMgrError('請輸入 Email 與顯示名稱');
+    setMgrBusy(true); setMgrError(''); setTempCred(null);
+    try {
+      const t = await platformApi(`/api/platform/tenants/${mgr.id}/admins`, {
+        method: 'POST',
+        body: { email: newAdmin.email.trim(), display_name: newAdmin.name.trim() },
+      });
+      setTempCred({ email: t.email, password: t.temp_password });
+      setNewAdmin({ email: '', name: '' });
+      await loadAdmins(mgr.id);
+    } catch (e) {
+      if (e instanceof AuthRequired) return router.replace(loginUrl('/zoustec/console', { platform: true }));
+      setMgrError(e.message);
+    } finally { setMgrBusy(false); }
+  }
+
+  async function resetAdminPassword(a) {
+    if (!mgr || mgrBusy) return;
+    setMgrBusy(true); setMgrError(''); setTempCred(null);
+    try {
+      const t = await platformApi(`/api/platform/tenants/${mgr.id}/admins/${a.id}/reset-password`, { method: 'POST' });
+      setTempCred({ email: t.email, password: t.temp_password });
+      await loadAdmins(mgr.id);
+    } catch (e) {
+      if (e instanceof AuthRequired) return router.replace(loginUrl('/zoustec/console', { platform: true }));
+      setMgrError(e.message);
+    } finally { setMgrBusy(false); }
+  }
+
+  async function createTenant() {
+    if (!newT || ntBusy) return;
+    if (!newT.name.trim() || !newT.slug.trim()) return setNtError('請輸入名稱與代稱（slug）');
+    setNtBusy(true); setNtError('');
+    try {
+      const created = await platformApi('/api/platform/tenants', {
+        method: 'POST',
+        body: { name: newT.name.trim(), slug: newT.slug.trim().toLowerCase() },
+      });
+      setNewT(null);
+      setOv(await platformApi('/api/platform/overview?months=6'));
+      await openManage(created.id); // continue setup right away (accounts / white-label)
+    } catch (e) {
+      if (e instanceof AuthRequired) return router.replace(loginUrl('/zoustec/console', { platform: true }));
+      setNtError(e.message);
+    } finally { setNtBusy(false); }
   }
 
   async function saveManage() {
@@ -209,7 +277,10 @@ export default function Page() {
 
       {/* Customers table — live data */}
       <div style={{background:'#fff', border:'1px solid var(--border-subtle)', borderRadius:'12px', boxShadow:'var(--shadow-sm)', overflow:'hidden'}}>
-        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px', borderBottom:'1px solid var(--border-subtle)', flexWrap:'wrap', gap:'10px'}}><div style={{fontSize:'15px', fontWeight:'700', color:'var(--text-strong)'}}>客戶</div></div>
+        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px', borderBottom:'1px solid var(--border-subtle)', flexWrap:'wrap', gap:'10px'}}>
+          <div style={{fontSize:'15px', fontWeight:'700', color:'var(--text-strong)'}}>客戶</div>
+          <button onClick={() => { setNewT({ name: '', slug: '' }); setNtError(''); }} style={{display:'flex', alignItems:'center', gap:'7px', height:'36px', padding:'0 14px', borderRadius:'8px', background:'var(--primary-600)', color:'#fff', fontSize:'13px', fontWeight:'700', border:'none', cursor:'pointer'}}><span style={{fontSize:'15px', display:'inline-flex', lineHeight:'0'}}><Icon name="plus" /></span>新增客戶</button>
+        </div>
         <div className="table-scroll">
           <table style={{width:'100%', borderCollapse:'collapse', fontSize:'13px', minWidth:'680px'}}>
             <thead><tr style={{textAlign:'left', color:'var(--text-muted)', fontSize:'11px', letterSpacing:'.06em', textTransform:'uppercase'}}><th style={{padding:'11px 20px', fontWeight:'700'}}>客戶</th><th style={{padding:'11px', fontWeight:'700'}}>方案</th><th style={{padding:'11px', fontWeight:'700'}}>活動</th><th style={{padding:'11px', fontWeight:'700', textAlign:'right'}}>會員</th><th style={{padding:'11px', fontWeight:'700', textAlign:'right'}}>MRR</th><th style={{padding:'11px', fontWeight:'700'}}>狀態</th><th style={{padding:'11px 20px'}}></th></tr></thead>
@@ -284,14 +355,75 @@ export default function Page() {
             </div>
           </div>
 
-          <label style={{display:'flex', alignItems:'center', gap:'9px', fontSize:'13px', fontWeight:'600', color:'var(--text-body)', marginBottom:'18px', cursor:'pointer'}}>
+          <label style={{display:'flex', alignItems:'center', gap:'9px', fontSize:'13px', fontWeight:'600', color:'var(--text-body)', marginBottom:'16px', cursor:'pointer'}}>
             <input type="checkbox" checked={mgrForm.hide_powered_by} onChange={(e) => setMgrForm({ ...mgrForm, hide_powered_by: e.target.checked })} style={{width:'16px', height:'16px', accentColor:'var(--primary-600)'}} />
             隱藏「Powered by Zoustec」（完全白標）
           </label>
 
+          {/* Customer admin accounts — provisioned here; the customer signs in
+              at /admin/login with email + password and must change it on
+              first login. */}
+          <div style={{borderTop:'1px solid var(--border-subtle)', paddingTop:'14px', marginBottom:'16px'}}>
+            <div style={{fontSize:'12px', fontWeight:'700', color:'var(--text-body)', marginBottom:'8px'}}>管理員帳號（客戶後台 /admin/login）</div>
+            {mgrAdmins === null ? (
+              <div style={{fontSize:'12px', color:'var(--text-subtle)', marginBottom:'10px'}}>載入中…</div>
+            ) : mgrAdmins.length === 0 ? (
+              <div style={{fontSize:'12px', color:'var(--text-subtle)', marginBottom:'10px'}}>尚無帳號 — 在下方建立第一個。</div>
+            ) : (
+              <div style={{display:'flex', flexDirection:'column', gap:'6px', marginBottom:'10px'}}>
+                {mgrAdmins.map((a) => (
+                  <div key={a.id} style={{display:'flex', alignItems:'center', gap:'8px', padding:'8px 10px', borderRadius:'8px', background:'var(--surface-sunken, #F8FAFC)'}}>
+                    <div style={{flex:1, minWidth:0}}>
+                      <div style={{fontSize:'12.5px', fontWeight:'700', color:'var(--text-strong)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{a.email || a.display_name}</div>
+                      <div style={{fontSize:'11px', color:'var(--text-subtle)'}}>{a.display_name}{a.must_change_password ? ' · 待客戶首次登入改密碼' : ''}</div>
+                    </div>
+                    {a.email && (
+                      <button onClick={() => resetAdminPassword(a)} disabled={mgrBusy} style={{height:'30px', padding:'0 10px', borderRadius:'7px', border:'1px solid var(--border-default)', background:'#fff', color:'var(--text-body)', fontSize:'11.5px', fontWeight:'700', cursor:'pointer', whiteSpace:'nowrap', opacity: mgrBusy ? .6 : 1}}>重設密碼</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{display:'flex', gap:'8px', marginBottom:'6px'}}>
+              <input value={newAdmin.email} onChange={(e) => setNewAdmin({ ...newAdmin, email: e.target.value })} type="email" placeholder="email@customer.tw" autoComplete="off" style={{flex:1.4, height:'38px', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'0 10px', fontSize:'12.5px', fontFamily:'var(--font-mono)', outline:'none', minWidth:0}} />
+              <input value={newAdmin.name} onChange={(e) => setNewAdmin({ ...newAdmin, name: e.target.value })} placeholder="顯示名稱" autoComplete="off" style={{flex:1, height:'38px', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'0 10px', fontSize:'12.5px', outline:'none', minWidth:0}} />
+              <button onClick={createAdmin} disabled={mgrBusy} style={{height:'38px', padding:'0 12px', borderRadius:'8px', background:'var(--primary-600)', color:'#fff', fontSize:'12px', fontWeight:'700', border:'none', cursor:'pointer', whiteSpace:'nowrap', opacity: mgrBusy ? .6 : 1}}>建立帳號</button>
+            </div>
+            {tempCred && (
+              <div style={{padding:'10px 12px', borderRadius:'8px', background:'var(--status-success-bg, #ECFDF5)', color:'var(--status-success-fg, #047857)', fontSize:'12px', fontWeight:'600', lineHeight:1.7}}>
+                帳號已就緒 ✓ 請透過安全管道交給客戶（暫時密碼僅顯示這一次）：<br/>
+                Email：<span style={{fontFamily:'var(--font-mono)', fontWeight:'700'}}>{tempCred.email}</span><br/>
+                暫時密碼：<span style={{fontFamily:'var(--font-mono)', fontWeight:'700'}}>{tempCred.password}</span><br/>
+                客戶首次登入 /admin/login 時會被要求設定新密碼。
+              </div>
+            )}
+          </div>
+
           <div style={{display:'flex', gap:'9px'}}>
             <button onClick={saveManage} disabled={mgrBusy} style={{flex:1, height:'44px', borderRadius:'9999px', background:'var(--primary-600)', color:'#fff', fontSize:'14px', fontWeight:'700', border:'none', cursor:'pointer', opacity: mgrBusy ? .6 : 1}}>{mgrBusy ? '儲存中…' : '儲存'}</button>
             <button onClick={() => setMgr(null)} style={{width:'44px', height:'44px', borderRadius:'9999px', background:'#fff', border:'1px solid var(--border-default)', color:'var(--text-body)', fontSize:'16px', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center'}}><span style={{display:'inline-flex', lineHeight:'0'}}><Icon name="x" /></span></button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* ── New-tenant modal ────────────────────────────────────────────── */}
+    {newT && (
+      <div onClick={() => setNewT(null)} style={{position:'fixed', inset:0, zIndex:100, background:'rgba(11,41,53,.6)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', padding:'20px'}}>
+        <div onClick={(e) => e.stopPropagation()} style={{background:'#fff', borderRadius:'16px', boxShadow:'var(--shadow-xl)', padding:'22px', width:'100%', maxWidth:'400px'}}>
+          <div style={{fontSize:'15px', fontWeight:'800', color:'var(--text-strong)', marginBottom:'14px'}}>新增客戶</div>
+          {ntError && <div style={{padding:'10px', borderRadius:'8px', background:'var(--status-danger-bg)', color:'var(--status-danger-fg)', fontSize:'12px', fontWeight:'600', marginBottom:'12px'}}>{ntError}</div>}
+
+          <label style={{fontSize:'12px', fontWeight:'600', color:'var(--text-body)', display:'block', marginBottom:'6px'}}>客戶名稱</label>
+          <input value={newT.name} onChange={(e) => setNewT({ ...newT, name: e.target.value })} placeholder="臺北市政府觀光傳播局" style={{width:'100%', height:'40px', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'0 12px', fontSize:'13px', marginBottom:'12px', outline:'none'}} />
+
+          <label style={{fontSize:'12px', fontWeight:'600', color:'var(--text-body)', display:'block', marginBottom:'6px'}}>代稱（slug — 小寫英數與連字號）</label>
+          <input value={newT.slug} onChange={(e) => setNewT({ ...newT, slug: e.target.value })} placeholder="taipei-tourism" style={{width:'100%', height:'40px', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'0 12px', fontSize:'13px', fontFamily:'var(--font-mono)', marginBottom:'4px', outline:'none'}} />
+          <div style={{fontSize:'10.5px', color:'var(--text-subtle)', marginBottom:'16px'}}>用於網址（/e/代稱/…），建立後不可更改。</div>
+
+          <div style={{display:'flex', gap:'9px'}}>
+            <button onClick={createTenant} disabled={ntBusy} style={{flex:1, height:'44px', borderRadius:'9999px', background:'var(--primary-600)', color:'#fff', fontSize:'14px', fontWeight:'700', border:'none', cursor:'pointer', opacity: ntBusy ? .6 : 1}}>{ntBusy ? '建立中…' : '建立客戶'}</button>
+            <button onClick={() => setNewT(null)} style={{width:'44px', height:'44px', borderRadius:'9999px', background:'#fff', border:'1px solid var(--border-default)', color:'var(--text-body)', fontSize:'16px', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center'}}><span style={{display:'inline-flex', lineHeight:'0'}}><Icon name="x" /></span></button>
           </div>
         </div>
       </div>

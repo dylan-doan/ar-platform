@@ -1,6 +1,7 @@
 """Platform (master) admin endpoints (spec §3): tenant management + event
 overview. RBAC: platform_admin only; session is cross-tenant."""
 
+import secrets
 import uuid
 
 from fastapi import APIRouter, Depends
@@ -8,9 +9,12 @@ from sqlalchemy import func, select
 
 from app.api.deps import AuthContext, platform_admin_context
 from app.core.errors import ApiError
+from app.core.security import hash_password
 from app.models import Event, Member, Stamp, Tenant
 from app.schemas import (
     EventOut,
+    TenantAdminCreate,
+    TenantAdminOut,
     TenantCreate,
     TenantLiffProvisionRequest,
     TenantOut,
@@ -179,6 +183,135 @@ async def provision_liff(
     )
     await ctx.session.commit()
     return TenantOut.model_validate(tenant)
+
+
+# ------------------------------------------------------------- tenant admin accounts
+# Zoustec provisions customer dashboard accounts from the console: email +
+# generated temporary password (returned exactly once), forced change on
+# first login. Customers never touch LINE for admin work.
+
+
+def _generate_temp_password() -> str:
+    return secrets.token_urlsafe(9)  # ~12 chars, URL-safe
+
+
+async def _get_tenant(ctx: AuthContext, tenant_id: uuid.UUID) -> Tenant:
+    tenant = (
+        await ctx.session.execute(select(Tenant).where(Tenant.id == tenant_id))
+    ).scalar_one_or_none()
+    if tenant is None:
+        raise ApiError(404, "tenant_not_found", "找不到此租戶。")
+    return tenant
+
+
+@router.get("/tenants/{tenant_id}/admins", response_model=list[TenantAdminOut])
+async def list_tenant_admins(
+    tenant_id: uuid.UUID, ctx: AuthContext = Depends(platform_admin_context)
+) -> list[TenantAdminOut]:
+    await _get_tenant(ctx, tenant_id)
+    admins = (
+        (
+            await ctx.session.execute(
+                select(Member)
+                .where(Member.tenant_id == tenant_id, Member.role == "tenant_admin")
+                .order_by(Member.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [TenantAdminOut.model_validate(m) for m in admins]
+
+
+@router.post(
+    "/tenants/{tenant_id}/admins", response_model=TenantAdminOut, status_code=201
+)
+async def create_tenant_admin(
+    tenant_id: uuid.UUID,
+    body: TenantAdminCreate,
+    ctx: AuthContext = Depends(platform_admin_context),
+) -> TenantAdminOut:
+    tenant = await _get_tenant(ctx, tenant_id)
+    email = body.email.strip().lower()
+
+    # Email locates the account at login (no tenant field) → globally unique.
+    taken = (
+        await ctx.session.execute(select(Member.id).where(Member.email == email))
+    ).scalar_one_or_none()
+    if taken:
+        raise ApiError(409, "email_taken", "此 Email 已被其他帳號使用。")
+
+    temp_password = _generate_temp_password()
+    member = Member(
+        tenant_id=tenant.id,
+        line_user_id=f"pw::{email}",
+        display_name=body.display_name,
+        role="tenant_admin",
+        email=email,
+        password_hash=hash_password(temp_password),
+        must_change_password=True,
+    )
+    ctx.session.add(member)
+    await ctx.session.flush()
+    await record_audit(
+        ctx.session,
+        tenant_id=tenant.id,
+        actor_type="platform_admin",
+        actor_id=ctx.identity.subject_id,
+        action="tenant_admin.created",
+        entity_type="member",
+        entity_id=member.id,
+        data={"email": email},
+    )
+    await ctx.session.commit()
+
+    out = TenantAdminOut.model_validate(member)
+    out.temp_password = temp_password  # returned once, never stored
+    return out
+
+
+@router.post(
+    "/tenants/{tenant_id}/admins/{member_id}/reset-password",
+    response_model=TenantAdminOut,
+)
+async def reset_tenant_admin_password(
+    tenant_id: uuid.UUID,
+    member_id: uuid.UUID,
+    ctx: AuthContext = Depends(platform_admin_context),
+) -> TenantAdminOut:
+    await _get_tenant(ctx, tenant_id)
+    member = (
+        await ctx.session.execute(
+            select(Member).where(
+                Member.id == member_id,
+                Member.tenant_id == tenant_id,
+                Member.role == "tenant_admin",
+            )
+        )
+    ).scalar_one_or_none()
+    if member is None:
+        raise ApiError(404, "admin_not_found", "找不到此管理員帳號。")
+    if member.email is None:
+        raise ApiError(422, "not_password_account", "此帳號不是密碼登入帳號。")
+
+    temp_password = _generate_temp_password()
+    member.password_hash = hash_password(temp_password)
+    member.must_change_password = True
+    await record_audit(
+        ctx.session,
+        tenant_id=tenant_id,
+        actor_type="platform_admin",
+        actor_id=ctx.identity.subject_id,
+        action="tenant_admin.password_reset",
+        entity_type="member",
+        entity_id=member.id,
+        data={"email": member.email},
+    )
+    await ctx.session.commit()
+
+    out = TenantAdminOut.model_validate(member)
+    out.temp_password = temp_password
+    return out
 
 
 @router.get("/tenants/{tenant_id}/events", response_model=list[EventOut])

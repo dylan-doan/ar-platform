@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -12,6 +12,11 @@ class Member(Base, UUIDPk, Timestamped):
 
     The same LINE user joining two tenants' events becomes two member rows —
     tenant isolation applies to user data too. role: member | tenant_admin.
+
+    Tenant ADMINS sign in with email + password (accounts provisioned by the
+    platform from the Zoustec console — customers never touch LINE for admin
+    work). Password accounts get a surrogate line_user_id (`pw::{email}`),
+    mirroring PlatformAdmin. Players keep LINE OIDC.
     """
 
     __tablename__ = "members"
@@ -26,6 +31,13 @@ class Member(Base, UUIDPk, Timestamped):
     display_name: Mapped[str] = mapped_column(String(255), default="")
     picture_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     role: Mapped[str] = mapped_column(String(32), default="member", server_default="member")
+    # Email login (tenant admins only) — globally unique so the login form
+    # needs no tenant field; the account row locates the tenant.
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
 
 
 class PlatformAdmin(Base, UUIDPk, Timestamped):

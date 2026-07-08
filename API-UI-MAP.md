@@ -10,9 +10,9 @@
 
 | Vai trò | Cách login |
 |---|---|
-| End user | `POST /api/auth/line` `{id_token: "dev::<id>::<Tên>", tenant_slug: "taipei"}` |
-| Tenant admin | id_token `dev::admin-taipei::Taipei Admin` (taipei) / `dev::admin-mall::Mall Admin` (riverside-mall) |
-| Platform admin | `POST /api/auth/platform` `{id_token: "dev::platform-boss::Boss"}` |
+| End user (người chơi) | LINE — `POST /api/auth/line` (dev: `{id_token: "dev::<id>::<Tên>", tenant_slug: "taipei"}`) |
+| Tenant admin | **Email/password** — `POST /api/auth/tenant/password` (tài khoản do console Zoustec cấp, đổi mật khẩu lần đầu qua `POST /api/auth/tenant/change-password`); dev fallback: id_token `dev::admin-taipei::Taipei Admin` |
+| Platform admin | **Email/password** — `POST /api/auth/platform/password`; dev fallback `POST /api/auth/platform` `{id_token: "dev::platform-boss::Boss"}` |
 
 ## Bản đồ màn hình → endpoint
 
@@ -26,7 +26,9 @@
 | **03 `/admin/ar-studio`** | `POST/GET /api/model3d/jobs`, `GET/PATCH/DELETE /api/model3d/jobs/{id}` (engine: mock \| meshy) | ✅ có sẵn |
 | **04 `/experience/*`** login→map→ar→rewards | `POST /api/auth/line` · `GET /api/me/events` · `GET /api/me/events/{id}/tasks` · `POST /api/me/tasks/{id}/complete` (`{qr_code}` / `{lat,lng}`) · `GET /api/me/events/{id}/progress` | ✅ có sẵn |
 | **05 `/admin/console`** KPI + bar chart + plans + bảng khách | `GET /api/platform/overview?months=6` — tenants / totals / plans / monthly | ✅ **mở rộng** (thêm plan+mrr_ntd: migration 0004, PATCH tenants nhận `plan`, `mrr_ntd`) |
-| 05 quản lý tenant | `GET/POST /api/platform/tenants`, `PATCH /api/platform/tenants/{id}` | ✅ có sẵn |
+| 05 quản lý tenant | `GET/POST /api/platform/tenants`, `PATCH /api/platform/tenants/{id}` (nút 新增客戶 trên console) | ✅ có sẵn |
+| 05 tài khoản admin của khách | `GET/POST /api/platform/tenants/{id}/admins`, `POST …/admins/{member_id}/reset-password` — mật khẩu tạm trả về 1 lần, bắt đổi khi login đầu | ✅ **mới thêm** |
+| 05 tự động tạo LIFF app | `POST /api/platform/tenants/{id}/liff` (nút 自動建立 LIFF) | ✅ có sẵn |
 | **06 `/` (portal — trang chủ; `/portal` redirect về `/`)** danh sách sự kiện công khai | `GET /api/public/events[?event_type=city\|hiking\|shopping]` | ✅ **mới thêm** |
 | Branding pre-login (white-label) | `GET /api/public/tenants/{slug}/branding` · `GET /api/public/domains/{domain}` | ✅ có sẵn |
 

@@ -436,3 +436,82 @@ async def test_provision_liff_via_api(client, demo, monkeypatch):
 
     # The secret must never leak through the API.
     assert "line_channel_secret" not in r.json()
+
+
+async def test_tenant_admin_password_accounts(client, demo):
+    # Console-provisioned customer accounts: create → temp password (returned
+    # once) → forced first-login change → sign in with own password; a
+    # platform reset re-arms the flow. Customers never need LINE for admin.
+    boss = (
+        await client.post("/api/auth/platform", json={"id_token": "dev::boss::Boss"})
+    ).json()["access_token"]
+    tid = demo["tenant_a"].id
+
+    r = await client.post(f"/api/platform/tenants/{tid}/admins", headers=bearer(boss),
+                          json={"email": "Chief@Customer.TW", "display_name": "Chief"})
+    assert r.status_code == 201, r.text
+    acct = r.json()
+    assert acct["email"] == "chief@customer.tw"  # normalized
+    assert acct["must_change_password"] is True
+    temp = acct["temp_password"]
+    assert temp and "password_hash" not in acct
+
+    # Duplicate email (case-insensitive) → 409.
+    r = await client.post(f"/api/platform/tenants/{tid}/admins", headers=bearer(boss),
+                          json={"email": "chief@customer.tw", "display_name": "Dup"})
+    assert r.status_code == 409 and r.json()["error"]["code"] == "email_taken"
+
+    # Wrong password → one generic 401 (no account probing).
+    r = await client.post("/api/auth/tenant/password",
+                          json={"email": "chief@customer.tw", "password": "nope"})
+    assert r.status_code == 401
+
+    # Temp password signs in, flagged for change; token is tenant-scoped.
+    r = await client.post("/api/auth/tenant/password",
+                          json={"email": "chief@customer.tw", "password": temp})
+    assert r.status_code == 200, r.text
+    sess = r.json()
+    assert sess["must_change_password"] is True
+    assert sess["role"] == "tenant_admin"
+    assert sess["tenant_id"] == str(tid)
+    tok = sess["access_token"]
+    assert (await client.get("/api/admin/branding", headers=bearer(tok))).status_code == 200
+
+    # Change password: wrong current → 401; too short → 422; correct → done.
+    r = await client.post("/api/auth/tenant/change-password", headers=bearer(tok),
+                          json={"current_password": "bad", "new_password": "own-password-1"})
+    assert r.status_code == 401
+    r = await client.post("/api/auth/tenant/change-password", headers=bearer(tok),
+                          json={"current_password": temp, "new_password": "short"})
+    assert r.status_code == 422
+    r = await client.post("/api/auth/tenant/change-password", headers=bearer(tok),
+                          json={"current_password": temp, "new_password": "own-password-1"})
+    assert r.status_code == 200, r.text
+    assert r.json()["must_change_password"] is False
+
+    # Temp password is dead; the account's own password works, unflagged.
+    assert (await client.post("/api/auth/tenant/password",
+            json={"email": "chief@customer.tw", "password": temp})).status_code == 401
+    r = await client.post("/api/auth/tenant/password",
+                          json={"email": "chief@customer.tw", "password": "own-password-1"})
+    assert r.status_code == 200 and r.json()["must_change_password"] is False
+
+    # Platform reset issues a fresh temp password and re-arms the change flag.
+    r = await client.post(
+        f"/api/platform/tenants/{tid}/admins/{acct['id']}/reset-password",
+        headers=bearer(boss))
+    assert r.status_code == 200, r.text
+    temp2 = r.json()["temp_password"]
+    assert (await client.post("/api/auth/tenant/password",
+            json={"email": "chief@customer.tw", "password": "own-password-1"})).status_code == 401
+    r = await client.post("/api/auth/tenant/password",
+                          json={"email": "chief@customer.tw", "password": temp2})
+    assert r.status_code == 200 and r.json()["must_change_password"] is True
+
+    # Listing shows accounts (incl. LINE-seeded admins) but no secret material.
+    r = await client.get(f"/api/platform/tenants/{tid}/admins", headers=bearer(boss))
+    assert r.status_code == 200
+    listed = r.json()
+    assert any(x["email"] == "chief@customer.tw" for x in listed)
+    assert all(x.get("temp_password") is None for x in listed)
+    assert all("password_hash" not in x for x in listed)

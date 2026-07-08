@@ -3,16 +3,15 @@
 /**
  * Client-side admin auth + API.
  *
- * Admins sign in with LINE (same OIDC as end users — doc leaves admin auth
- * unspecified; platform choice: one auth mechanism, role-gated by RBAC).
- * Two independent sessions:
+ * Both back offices sign in with email + password (accounts provisioned by
+ * Zoustec from the console; players keep LINE OIDC — spec only mandates LINE
+ * for the player entry). Two independent sessions:
  *   tenant   — customer (dashboard/builder), requires role=tenant_admin
  *   platform — Zoustec (console), verified against platform_admins
  * Dev fallback (AUTH_DEV_MODE): sign in by seeded dev ID (admin-taipei…).
  */
 
 const TENANT = process.env.NEXT_PUBLIC_TENANT_SLUG || 'taipei';
-const LIFF_ID = process.env.NEXT_PUBLIC_LIFF_ID || '';
 
 const KEYS = { tenant: 'zx_admin_tenant', platform: 'zx_admin_platform' };
 
@@ -28,8 +27,6 @@ export const adminSession = {
   set(kind, data) { localStorage.setItem(KEYS[kind], JSON.stringify(data)); },
   clear(kind) { localStorage.removeItem(KEYS[kind]); },
 };
-
-export const hasLiff = () => Boolean(LIFF_ID);
 
 async function post(path, body) {
   const res = await fetch(path, {
@@ -63,47 +60,42 @@ async function loginWith(idToken, { platform = false } = {}) {
   return out;
 }
 
-/** Sign in with LINE (LIFF ID token). Shares the cached liff.init from
- * liff-client so the OAuth return (?code=...) is consumed exactly once. */
-export async function adminLoginLine({ platform = false } = {}) {
-  const { getLiff } = await import('./liff-client');
-  const liff = await getLiff();
-  if (!liff) throw new Error('LIFF 尚未設定');
-  // LINE returns to the ENDPOINT URL (site root); record where to come back to
-  // ourselves — the SDK's redirectUri param is not always echoed back.
-  const goLine = () => {
-    sessionStorage.setItem('zx_post_login', window.location.href);
-    liff.login({ redirectUri: window.location.href });
-    return new Promise(() => {}); // redirects away
-  };
-  if (!liff.isLoggedIn()) return goLine();
-  const idToken = liff.getIDToken();
-  if (!idToken) return goLine();
-  try {
-    return await loginWith(idToken, { platform });
-  } catch (e) {
-    // Stale cached ID token (expired) → force a fresh LINE login round-trip.
-    if (e.status === 401) return goLine();
-    throw e;
-  }
-}
-
-/** True when the LIFF SDK is ready and the browser already holds a LINE
- * session (e.g. just returned from the OAuth redirect). */
-export async function liffLoggedIn() {
-  if (!hasLiff()) return false;
-  try {
-    const { getLiff } = await import('./liff-client');
-    const liff = await getLiff();
-    return liff.isLoggedIn();
-  } catch { return false; }
-}
-
 /** Zoustec console sign-in — email + password (no LINE round-trip). */
 export async function adminLoginPassword(email, password) {
   const out = await post('/api/auth/platform/password', { email, password });
   adminSession.set('platform', { token: out.access_token, name: out.display_name, role: 'platform_admin' });
   return out;
+}
+
+/** Customer dashboard sign-in — email + password (account provisioned from
+ * the Zoustec console). When the account still holds its provisioning
+ * password (must_change_password) the session is NOT stored — the login page
+ * forces a password change first, using the returned token in memory. */
+export async function adminLoginTenantPassword(email, password) {
+  const out = await post('/api/auth/tenant/password', { email, password });
+  if (!out.must_change_password) {
+    adminSession.set('tenant', { token: out.access_token, name: out.display_name, role: out.role });
+  }
+  return out;
+}
+
+/** First-login (or routine) password change; returns a fresh session and
+ * stores it. `token` comes from the pending login response. */
+export async function adminChangeTenantPassword(token, currentPassword, newPassword) {
+  const res = await fetch('/api/auth/tenant/change-password', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = data?.error || {};
+    const e = new Error(err.message || `HTTP ${res.status}`);
+    e.status = res.status; e.code = err.code;
+    throw e;
+  }
+  adminSession.set('tenant', { token: data.access_token, name: data.display_name, role: data.role });
+  return data;
 }
 
 /** Dev sign-in by seeded ID (admin-taipei / admin-mall / platform-boss). */
@@ -174,8 +166,8 @@ export async function adminDownload(path, filename) {
   URL.revokeObjectURL(url);
 }
 
-/** Redirect helper for guarded pages. Zoustec console has its own door
- * (email/password at /zoustec/login) — customers keep LINE at /admin/login. */
+/** Redirect helper for guarded pages — both back offices use email/password,
+ * each behind its own door (/zoustec/login vs /admin/login). */
 export function loginUrl(next, { platform = false } = {}) {
   const p = new URLSearchParams({ next });
   return platform ? `/zoustec/login?${p}` : `/admin/login?${p}`;
