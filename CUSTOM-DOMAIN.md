@@ -208,6 +208,20 @@ mang tên khách.
    `liff.line.me/<LIFF-của-khách>/...`; login xong header LIFF hiện domain
    khách. Gỡ trắng nhãn = xóa ô LIFF ID trong console.
 
+### Đánh giá tự động hóa (spec mục 5 — deliverable)
+
+| Thao tác | API? |
+|---|---|
+| Tạo Provider / LINE Login channel | ❌ Không có API công khai — thủ công (checklist 5 bước trên) |
+| Tạo / sửa / xóa LIFF app trong channel | ✅ LIFF Server API `POST/PUT/DELETE https://api.line.me/liff/v1/apps` |
+
+Auth: channel access token từ **Channel ID + Channel Secret** (grant
+`client_credentials`, `POST /oauth2/v3/token`). → Quy trình lai khi thương mại
+hóa: khách tạo channel tay (1 lần) + dán Channel ID/Secret vào console →
+platform tự tạo LIFF app đúng endpoint, tự cập nhật endpoint khi khách đổi
+domain (`PUT /liff/v1/apps/{id}`). Đánh đổi: platform lưu Channel Secret
+(mã hóa) — ghi vào điều khoản dịch vụ.
+
 Điều kiện tiên quyết: tenant đã gắn custom domain hoạt động (mục trên) —
 endpoint LIFF trỏ về domain đó. Lưu ý: đổi endpoint một LIFF app đang dùng
 sẽ ảnh hưởng NGƯỜI ĐANG login app đó; app riêng của khách thì độc lập hoàn
