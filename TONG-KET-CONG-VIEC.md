@@ -94,6 +94,8 @@ Tests: 67/67.
 | `14b8349` | **Chuẩn hóa ngôn ngữ toàn code**: comment tiếng Việt → tiếng Anh (~46 chỗ); mọi message lỗi user-facing (55 ApiError backend + admin-client) → tiếng Trung phồn thể; `error.code` giữ tiếng Anh. QUY TẮC từ nay: comment = EN, text/lỗi hiển thị = zh-TW, docs .md = VI |
 | `c995f5b` | **Chốt quy trình channel trọn gói** (CUSTOM-DOMAIN.md): khách KHÔNG phải tự tạo channel — Zoustec tạo hộ từ account mình, **mỗi khách 1 provider riêng đặt tên khách** (quy định LINE TW cho integrator; userId cấp theo provider, channel không chuyển provider được); khách có OA riêng thì mời Zoustec làm Admin provider của họ. Không mâu thuẫn spec (§III.4 chỉ đòi quy trình cho người không phải kỹ sư) |
 | `7493047` | **Admin khách bỏ LINE login → email/password** (spec chỉ bắt LINE cho người chơi): console cấp tài khoản từ modal 白標設定 (mật khẩu tạm hiện 1 lần, bắt đổi lần đầu — token giữ memory tới khi đổi xong), nút 新增客戶 tạo tenant; migration 0008 (members.email/password_hash/must_change_password); /admin/login thành form email/password (dev-mode giữ). Tests 71/71 |
+| `4764d29` | Fix UX console: 自動建立 LIFF tự lưu form trước khi gọi API (hết 422 khó hiểu); validate slug phía client. Đã wipe data prod (giữ platform_admins) để test lại từ đầu |
+| `7fe9d95` | **Xây lại AR Studio thành pipeline 4 bước**: ① ảnh 2D gốc (= ảnh in nhận diện tại hiện trường — nút 開啟/列印/下載, hướng dẫn test) ② AI sinh 3D ③ compile .mind + nút 重新編譯 ④ chỉ định vào nhiệm vụ. **Ảnh gốc chuyển vào DB** (media_assets — trước đây nằm disk ephemeral, redeploy là mất; bug sót từ 3e53ae7); xóa job dọn luôn media. Thumbnail + kéo-thả |
 
 Nghiệm thu trong session: hệ thống AR 2 bước chạy thật trên LINE iOS; BnK
 white-label trọn vẹn (domain riêng + LINE channel riêng, header LIFF hiện
