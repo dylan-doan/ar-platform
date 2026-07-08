@@ -103,8 +103,9 @@ export default function Page() {
     } finally { setMgrBusy(false); }
   }
 
-  /** Spec mục 5: platform tự tạo (hoặc cập nhật endpoint) LIFF app qua LIFF
-   * Server API — khách chỉ cần đưa Channel ID + Secret một lần. */
+  /** Spec item 5: the platform creates (or updates the endpoint of) the LIFF
+   * app via the LIFF Server API — the customer provides Channel ID + Secret
+   * just once. */
   async function provisionLiff() {
     if (!mgr || mgrBusy) return;
     setMgrBusy(true); setMgrError(''); setMgrFlash('');
@@ -154,13 +155,8 @@ export default function Page() {
     </div>
     <div style={{fontSize:'10px', fontWeight:'700', letterSpacing:'.12em', color:'#4E7A88', padding:'8px 10px 6px'}}>平台</div>
     <a style={{display:'flex', alignItems:'center', gap:'12px', padding:'10px 12px', borderRadius:'8px', background:'var(--sidebar-active-bg)', color:'#fff', fontSize:'14px', fontWeight:'600', textDecoration:'none'}}><span style={{fontSize:'19px', display:'inline-flex', lineHeight:'0'}}><Icon name="layout-dashboard" /></span>總覽</a>
-    <a style={{display:'flex', alignItems:'center', gap:'12px', padding:'10px 12px', borderRadius:'8px', color:'#B6D4DE', fontSize:'14px', fontWeight:'500', textDecoration:'none'}}><span style={{fontSize:'19px', display:'inline-flex', lineHeight:'0'}}><Icon name="building-2" /></span>客戶</a>
-    <a style={{display:'flex', alignItems:'center', gap:'12px', padding:'10px 12px', borderRadius:'8px', color:'#B6D4DE', fontSize:'14px', fontWeight:'500', textDecoration:'none'}}><span style={{fontSize:'19px', display:'inline-flex', lineHeight:'0'}}><Icon name="calendar-check" /></span>全平台活動</a>
-    <a style={{display:'flex', alignItems:'center', gap:'12px', padding:'10px 12px', borderRadius:'8px', color:'#B6D4DE', fontSize:'14px', fontWeight:'500', textDecoration:'none'}}><span style={{fontSize:'19px', display:'inline-flex', lineHeight:'0'}}><Icon name="activity" /></span>流量</a>
-    <a style={{display:'flex', alignItems:'center', gap:'12px', padding:'10px 12px', borderRadius:'8px', color:'#B6D4DE', fontSize:'14px', fontWeight:'500', textDecoration:'none'}}><span style={{fontSize:'19px', display:'inline-flex', lineHeight:'0'}}><Icon name="credit-card" /></span>營收</a>
     <div style={{fontSize:'10px', fontWeight:'700', letterSpacing:'.12em', color:'#4E7A88', padding:'18px 10px 6px'}}>系統</div>
-    <a style={{display:'flex', alignItems:'center', gap:'12px', padding:'10px 12px', borderRadius:'8px', color:'#B6D4DE', fontSize:'14px', fontWeight:'500', textDecoration:'none'}}><span style={{fontSize:'19px', display:'inline-flex', lineHeight:'0'}}><Icon name="globe" /></span>入口網站</a>
-    <a style={{display:'flex', alignItems:'center', gap:'12px', padding:'10px 12px', borderRadius:'8px', color:'#B6D4DE', fontSize:'14px', fontWeight:'500', textDecoration:'none'}}><span style={{fontSize:'19px', display:'inline-flex', lineHeight:'0'}}><Icon name="settings" /></span>設定</a>
+    <a href="/portal" target="_blank" rel="noreferrer" style={{display:'flex', alignItems:'center', gap:'12px', padding:'10px 12px', borderRadius:'8px', color:'#B6D4DE', fontSize:'14px', fontWeight:'500', textDecoration:'none'}}><span style={{fontSize:'19px', display:'inline-flex', lineHeight:'0'}}><Icon name="globe" /></span>入口網站</a>
     <div style={{marginTop:'auto', display:'flex', alignItems:'center', gap:'11px', padding:'10px', borderTop:'1px solid rgba(255,255,255,.08)'}}>
       <div style={{width:'34px', height:'34px', borderRadius:'9999px', background:'var(--primary-500)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:'700', fontSize:'13px'}}>ZT</div>
       <div style={{flex:'1', minWidth:'0'}}><div style={{color:'#fff', fontSize:'13px', fontWeight:'600'}}>Zoustec Team</div><div style={{color:'#6FCDE8', fontSize:'11px'}}>平台擁有者</div></div>
@@ -173,8 +169,7 @@ export default function Page() {
     <header className="app-topbar" style={{height:'66px', flex:'0 0 auto', background:'#fff', borderBottom:'1px solid var(--border-subtle)', display:'flex', alignItems:'center', padding:'0 26px', gap:'16px'}}>
       <div style={{fontSize:'19px', fontWeight:'800', color:'var(--text-strong)'}}>平台總覽</div>
       <div style={{marginLeft:'auto', display:'flex', alignItems:'center', gap:'12px', flexWrap:'wrap'}}>
-        <div style={{display:'flex', alignItems:'center', gap:'8px', height:'38px', padding:'0 14px', borderRadius:'8px', border:'1px solid var(--border-default)', fontSize:'13px', fontWeight:'600', color:'var(--text-body)'}}><span style={{fontSize:'15px', color:'var(--text-muted)', display:'inline-flex', lineHeight:'0'}}><Icon name="calendar" /></span>最近 6 個月<span style={{fontSize:'15px', color:'var(--text-muted)', display:'inline-flex', lineHeight:'0'}}><Icon name="chevron-down" /></span></div>
-        <div style={{width:'38px', height:'38px', borderRadius:'8px', border:'1px solid var(--border-subtle)', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', fontSize:'18px'}}><span style={{display:'inline-flex', lineHeight:'0'}}><Icon name="bell" /></span></div>
+        <div style={{display:'flex', alignItems:'center', gap:'8px', height:'38px', padding:'0 14px', borderRadius:'8px', border:'1px solid var(--border-default)', fontSize:'13px', fontWeight:'600', color:'var(--text-body)'}}><span style={{fontSize:'15px', color:'var(--text-muted)', display:'inline-flex', lineHeight:'0'}}><Icon name="calendar" /></span>最近 6 個月</div>
       </div>
     </header>
 
@@ -214,7 +209,7 @@ export default function Page() {
 
       {/* Customers table — live data */}
       <div style={{background:'#fff', border:'1px solid var(--border-subtle)', borderRadius:'12px', boxShadow:'var(--shadow-sm)', overflow:'hidden'}}>
-        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px', borderBottom:'1px solid var(--border-subtle)', flexWrap:'wrap', gap:'10px'}}><div style={{fontSize:'15px', fontWeight:'700', color:'var(--text-strong)'}}>客戶</div><div style={{display:'flex', alignItems:'center', gap:'8px', height:'36px', padding:'0 14px', borderRadius:'8px', border:'1px solid var(--border-default)', color:'var(--text-body)', fontSize:'13px', fontWeight:'600'}}><span style={{fontSize:'15px', display:'inline-flex', lineHeight:'0'}}><Icon name="filter" /></span>篩選</div></div>
+        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px', borderBottom:'1px solid var(--border-subtle)', flexWrap:'wrap', gap:'10px'}}><div style={{fontSize:'15px', fontWeight:'700', color:'var(--text-strong)'}}>客戶</div></div>
         <div className="table-scroll">
           <table style={{width:'100%', borderCollapse:'collapse', fontSize:'13px', minWidth:'680px'}}>
             <thead><tr style={{textAlign:'left', color:'var(--text-muted)', fontSize:'11px', letterSpacing:'.06em', textTransform:'uppercase'}}><th style={{padding:'11px 20px', fontWeight:'700'}}>客戶</th><th style={{padding:'11px', fontWeight:'700'}}>方案</th><th style={{padding:'11px', fontWeight:'700'}}>活動</th><th style={{padding:'11px', fontWeight:'700', textAlign:'right'}}>會員</th><th style={{padding:'11px', fontWeight:'700', textAlign:'right'}}>MRR</th><th style={{padding:'11px', fontWeight:'700'}}>狀態</th><th style={{padding:'11px 20px'}}></th></tr></thead>
@@ -263,7 +258,7 @@ export default function Page() {
           <label style={{fontSize:'12px', fontWeight:'600', color:'var(--text-body)', display:'block', marginBottom:'6px'}}>LINE Channel ID</label>
           <input value={mgrForm.line_channel_id} onChange={(e) => setMgrForm({ ...mgrForm, line_channel_id: e.target.value })} placeholder="留空 = 平台共用" style={{width:'100%', height:'40px', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'0 12px', fontSize:'13px', fontFamily:'var(--font-mono)', marginBottom:'12px', outline:'none'}} />
 
-          {/* Spec mục 5 — 自動建立 LIFF：channel tạo tay, LIFF app do platform tạo qua API */}
+          {/* Spec item 5 — 自動建立 LIFF: channel is made by hand, the LIFF app is created by the platform via API */}
           <label style={{fontSize:'12px', fontWeight:'600', color:'var(--text-body)', display:'block', marginBottom:'6px'}}>LINE Channel Secret（自動建立 LIFF 用）</label>
           <div style={{display:'flex', gap:'8px', marginBottom:'6px'}}>
             <input type="password" value={mgrForm.channel_secret} onChange={(e) => setMgrForm({ ...mgrForm, channel_secret: e.target.value })} placeholder="留空 = 使用已儲存的 Secret" autoComplete="off" style={{flex:1, height:'40px', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'0 12px', fontSize:'13px', fontFamily:'var(--font-mono)', outline:'none'}} />
@@ -305,10 +300,10 @@ export default function Page() {
     {/* ── Bottom navigation (mobile) ──────────────────────────────────── */}
     <nav className="app-bottom-nav">
       <a className="bn-item active"><span style={{fontSize:'21px', display:'inline-flex', lineHeight:'0'}}><Icon name="layout-dashboard" /></span>總覽</a>
-      <a className="bn-item"><span style={{fontSize:'21px', display:'inline-flex', lineHeight:'0'}}><Icon name="building-2" /></span>客戶</a>
-      <a className="bn-item"><span style={{fontSize:'21px', display:'inline-flex', lineHeight:'0'}}><Icon name="activity" /></span>流量</a>
-      <a className="bn-item"><span style={{fontSize:'21px', display:'inline-flex', lineHeight:'0'}}><Icon name="credit-card" /></span>營收</a>
-      <a className="bn-item"><span style={{fontSize:'21px', display:'inline-flex', lineHeight:'0'}}><Icon name="settings" /></span>設定</a>
+      <a className="bn-item" href="/portal" target="_blank" rel="noreferrer"><span style={{fontSize:'21px', display:'inline-flex', lineHeight:'0'}}><Icon name="globe" /></span>入口網站</a>
+      <button onClick={logout} className="bn-item" style={{background:'none', border:'none', cursor:'pointer'}}>
+        <span style={{fontSize:'21px', display:'inline-flex', lineHeight:'0'}}><Icon name="log-out" /></span>登出
+      </button>
     </nav>
   </div>
 </div>
