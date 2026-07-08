@@ -92,6 +92,7 @@ Tests: 67/67.
 | `a5410d0` | **Nút 自動建立 LIFF** trong console: `POST /api/platform/tenants/{id}/liff` — phát hành channel access token (v3 fallback v2) từ Channel ID + Secret (cột `line_channel_secret`, migration 0007, không bao giờ trả ra ngoài) → tạo LIFF app endpoint = custom domain, hoặc cập nhật endpoint app hiện có khi khách đổi domain |
 | `832d66e` | Console Zoustec: bỏ menu chết (客戶/全平台活動/流量/營收/設定 — chưa có màn), 入口網站 thành link thật → /portal, bottom nav mobile thêm 登出; dọn chuông/篩選/dropdown giả |
 | `14b8349` | **Chuẩn hóa ngôn ngữ toàn code**: comment tiếng Việt → tiếng Anh (~46 chỗ); mọi message lỗi user-facing (55 ApiError backend + admin-client) → tiếng Trung phồn thể; `error.code` giữ tiếng Anh. QUY TẮC từ nay: comment = EN, text/lỗi hiển thị = zh-TW, docs .md = VI |
+| `c995f5b` | **Chốt quy trình channel trọn gói** (CUSTOM-DOMAIN.md): khách KHÔNG phải tự tạo channel — Zoustec tạo hộ từ account mình, **mỗi khách 1 provider riêng đặt tên khách** (quy định LINE TW cho integrator; userId cấp theo provider, channel không chuyển provider được); khách có OA riêng thì mời Zoustec làm Admin provider của họ. Không mâu thuẫn spec (§III.4 chỉ đòi quy trình cho người không phải kỹ sư) |
 
 Nghiệm thu trong session: hệ thống AR 2 bước chạy thật trên LINE iOS; BnK
 white-label trọn vẹn (domain riêng + LINE channel riêng, header LIFF hiện
