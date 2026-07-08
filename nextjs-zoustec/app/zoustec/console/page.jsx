@@ -134,6 +134,10 @@ export default function Page() {
   async function createTenant() {
     if (!newT || ntBusy) return;
     if (!newT.name.trim() || !newT.slug.trim()) return setNtError('請輸入名稱與代稱（slug）');
+    const slug = newT.slug.trim().toLowerCase();
+    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(slug)) {
+      return setNtError('代稱（slug）只能包含小寫英文、數字與連字號，例如 bnk 或 taipei-tourism — 網域請於建立後在「自訂網域」欄位設定。');
+    }
     setNtBusy(true); setNtError('');
     try {
       const created = await platformApi('/api/platform/tenants', {
@@ -173,11 +177,24 @@ export default function Page() {
 
   /** Spec item 5: the platform creates (or updates the endpoint of) the LIFF
    * app via the LIFF Server API — the customer provides Channel ID + Secret
-   * just once. */
+   * just once. Saves the form first: the endpoint comes from the tenant's
+   * custom domain in the DB, and "type domain → press button" must just work. */
   async function provisionLiff() {
     if (!mgr || mgrBusy) return;
+    if (!mgrForm.custom_domain.trim()) return setMgrError('請先填寫自訂網域 — LIFF Endpoint 將指向該網域。');
     setMgrBusy(true); setMgrError(''); setMgrFlash('');
     try {
+      await platformApi(`/api/platform/tenants/${mgr.id}`, {
+        method: 'PATCH',
+        body: {
+          custom_domain: mgrForm.custom_domain.trim().toLowerCase(),
+          line_liff_id: mgrForm.line_liff_id || null,
+          line_channel_id: mgrForm.line_channel_id || null,
+          hide_powered_by: mgrForm.hide_powered_by,
+          plan: mgrForm.plan,
+          mrr_ntd: mgrForm.mrr_ntd === '' ? null : Number(mgrForm.mrr_ntd),
+        },
+      });
       const t = await platformApi(`/api/platform/tenants/${mgr.id}/liff`, {
         method: 'POST',
         body: {
@@ -336,7 +353,7 @@ export default function Page() {
             <button onClick={provisionLiff} disabled={mgrBusy} style={{height:'40px', padding:'0 14px', borderRadius:'8px', background:'var(--primary-600)', color:'#fff', fontSize:'12.5px', fontWeight:'700', border:'none', cursor:'pointer', whiteSpace:'nowrap', opacity: mgrBusy ? .6 : 1}}>{mgrBusy ? '處理中…' : '自動建立 LIFF'}</button>
           </div>
           <div style={{fontSize:'11px', color:'var(--text-subtle)', lineHeight:1.6, marginBottom:'12px'}}>
-            需先綁定自訂網域 — LIFF Endpoint 會指向該網域。已有本 channel 的 LIFF 時改為更新 Endpoint（客戶換網域後按一次即可）。
+            按下後會先儲存上方設定，再建立 LIFF app（Endpoint = 自訂網域）。已有本 channel 的 LIFF 時改為更新 Endpoint（客戶換網域後按一次即可）。
           </div>
           {mgrFlash && <div style={{padding:'9px 12px', borderRadius:'8px', background:'var(--status-success-bg, #ECFDF5)', color:'var(--status-success-fg, #047857)', fontSize:'12px', fontWeight:'700', marginBottom:'12px'}}>{mgrFlash}</div>}
 
