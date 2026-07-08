@@ -99,6 +99,13 @@ export async function liffLoggedIn() {
   } catch { return false; }
 }
 
+/** Zoustec console sign-in — email + password (no LINE round-trip). */
+export async function adminLoginPassword(email, password) {
+  const out = await post('/api/auth/platform/password', { email, password });
+  adminSession.set('platform', { token: out.access_token, name: out.display_name, role: 'platform_admin' });
+  return out;
+}
+
 /** Dev sign-in by seeded ID (admin-taipei / admin-mall / platform-boss). */
 export async function adminLoginDev(devId, { platform = false } = {}) {
   const id = devId.trim();
@@ -167,9 +174,9 @@ export async function adminDownload(path, filename) {
   URL.revokeObjectURL(url);
 }
 
-/** Redirect helper for guarded pages. */
+/** Redirect helper for guarded pages. Zoustec console has its own door
+ * (email/password at /zoustec/login) — customers keep LINE at /admin/login. */
 export function loginUrl(next, { platform = false } = {}) {
   const p = new URLSearchParams({ next });
-  if (platform) p.set('mode', 'platform');
-  return `/admin/login?${p}`;
+  return platform ? `/zoustec/login?${p}` : `/admin/login?${p}`;
 }

@@ -360,3 +360,28 @@ async def test_login_ok_when_tenant_bound_to_own_liff(client, demo):
     # Public surfaces expose the tenant's LIFF id so CTA/QR open the right app.
     site = (await client.get("/api/public/site/alpha")).json()
     assert site["branding"]["line_liff_id"] == "2010999999-AbCdEfGh"
+
+
+async def test_platform_password_login(client, demo, owner_session):
+    # Zoustec console: email + password sign-in (no LINE). Wrong password and
+    # unknown email share one generic 401; success mints a platform JWT.
+    from app.core.security import hash_password
+    from app.models import PlatformAdmin
+
+    owner_session.add(PlatformAdmin(
+        line_user_id="pw::ops@zoustec.tw", display_name="Ops",
+        email="ops@zoustec.tw", password_hash=hash_password("s3cret!"),
+    ))
+    await owner_session.commit()
+
+    bad = await client.post("/api/auth/platform/password",
+                            json={"email": "ops@zoustec.tw", "password": "wrong"})
+    assert bad.status_code == 401
+    assert bad.json()["error"]["code"] == "invalid_credentials"
+
+    ok = await client.post("/api/auth/platform/password",
+                           json={"email": " OPS@zoustec.tw", "password": "s3cret!"})
+    assert ok.status_code == 200, ok.text
+    token = ok.json()["access_token"]
+    resp = await client.get("/api/platform/overview", headers=bearer(token))
+    assert resp.status_code == 200, resp.text

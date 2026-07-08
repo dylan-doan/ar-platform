@@ -256,6 +256,29 @@ async def seed() -> None:
         if boss is None:
             session.add(PlatformAdmin(line_user_id="platform-boss", display_name="Boss"))
 
+        # Zoustec console account (email + password) — upserted from env on
+        # every start, so rotating the password = change env + redeploy.
+        if settings.platform_admin_email and settings.platform_admin_password:
+            from app.core.security import hash_password
+
+            email = settings.platform_admin_email.strip().lower()
+            acct = (
+                await session.execute(
+                    select(PlatformAdmin).where(PlatformAdmin.email == email)
+                )
+            ).scalar_one_or_none()
+            if acct is None:
+                session.add(
+                    PlatformAdmin(
+                        line_user_id=f"pw::{email}",
+                        display_name="Zoustec Admin",
+                        email=email,
+                        password_hash=hash_password(settings.platform_admin_password),
+                    )
+                )
+            else:
+                acct.password_hash = hash_password(settings.platform_admin_password)
+
         async def get_or_create_event(
             tenant: Tenant,
             slug: str,

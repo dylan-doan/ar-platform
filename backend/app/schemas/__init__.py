@@ -15,6 +15,11 @@ class PlatformLoginRequest(BaseModel):
     id_token: str = Field(min_length=1, max_length=4096)
 
 
+class PlatformPasswordLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=255)
+
+
 class SessionResponse(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"

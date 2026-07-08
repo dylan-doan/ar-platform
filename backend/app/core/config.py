@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # whole flow runs without a real LINE channel. NEVER enable in production.
     auth_dev_mode: bool = False
 
+    # Zoustec console account (email + password) — seeded/rotated on start when
+    # both are set (db/seed.py). Rotate by changing the env and redeploying.
+    platform_admin_email: str = ""
+    platform_admin_password: str = ""
+
     # --- CORS (spec §5.5) ---------------------------------------------------
     cors_origins: str = "http://localhost:3000"
 

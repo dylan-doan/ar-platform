@@ -16,7 +16,9 @@ const nextConfig = {
       { source: '/dashboard/:path*', destination: '/admin/dashboard/:path*', permanent: false },
       { source: '/builder/:path*', destination: '/admin/builder/:path*', permanent: false },
       { source: '/ar-studio', destination: '/admin/ar-studio', permanent: false },
-      { source: '/console', destination: '/admin/console', permanent: false },
+      // Console của Zoustec tách khỏi khu khách hàng → /zoustec/*.
+      { source: '/console', destination: '/zoustec/console', permanent: false },
+      { source: '/admin/console', destination: '/zoustec/console', permanent: false },
     ];
   },
 };

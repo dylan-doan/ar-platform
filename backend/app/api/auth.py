@@ -13,10 +13,16 @@ from app.core.security import (
     ROLE_PLATFORM_ADMIN,
     TokenIdentity,
     create_session_token,
+    verify_password,
 )
 from app.db.session import anonymous_session, tenant_session
 from app.models import Member, PlatformAdmin, Tenant
-from app.schemas import LineLoginRequest, PlatformLoginRequest, SessionResponse
+from app.schemas import (
+    LineLoginRequest,
+    PlatformLoginRequest,
+    PlatformPasswordLoginRequest,
+    SessionResponse,
+)
 from app.services.audit import record_audit
 from app.services.line_oidc import verify_line_id_token
 
@@ -106,6 +112,36 @@ async def login_with_line(body: LineLoginRequest) -> SessionResponse:
             tenant_id=tenant.id,
             display_name=member.display_name,
         )
+
+
+@router.post("/platform/password", response_model=SessionResponse)
+async def login_platform_password(body: PlatformPasswordLoginRequest) -> SessionResponse:
+    """Zoustec console sign-in — email + password (no LINE round-trip; the
+    console is the platform's internal back office)."""
+    async with anonymous_session() as session:
+        admin = (
+            await session.execute(
+                select(PlatformAdmin).where(
+                    PlatformAdmin.email == body.email.strip().lower()
+                )
+            )
+        ).scalar_one_or_none()
+
+    # Same generic error for unknown email / wrong password — no user probing.
+    if admin is None or not verify_password(body.password, admin.password_hash):
+        raise ApiError(401, "invalid_credentials", "Email 或密碼不正確。")
+
+    identity = TokenIdentity(
+        subject_id=admin.id, tenant_id=None, role=ROLE_PLATFORM_ADMIN
+    )
+    return SessionResponse(
+        access_token=create_session_token(identity),
+        expires_in_minutes=get_settings().jwt_expires_minutes,
+        role=ROLE_PLATFORM_ADMIN,
+        member_id=admin.id,
+        tenant_id=None,
+        display_name=admin.display_name,
+    )
 
 
 @router.post("/platform", response_model=SessionResponse)

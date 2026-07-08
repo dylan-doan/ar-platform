@@ -6,7 +6,7 @@ const SCREENS = [
   ['/admin/builder', 'layout-template', '活動網站產生器', '選範本、拖放編輯、匯出前端範本'],
   ['/admin/ar-studio', 'sparkles', 'AI 3D 生成工具', '上傳 2D 圖，AI 生成 3D 並匯出 WebAR'],
   ['/experience/login', 'scan-line', 'WebAR 體驗 (LINE LIFF)', '參與者任務、AR 掃描與集章'],
-  ['/admin/console', 'server', '平台管理後台', 'Zoustec 客戶、流量與營收'],
+  ['/zoustec/console', 'server', '平台管理後台', 'Zoustec 客戶、流量與營收'],
   ['/', 'compass', '活動入口網站', '對外公開的活動探索入口（首頁）'],
 ];
 

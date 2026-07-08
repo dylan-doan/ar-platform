@@ -28,6 +28,10 @@ services:
         value: "2010613964"
       - key: AUTH_DEV_MODE         # PoC: giữ true để demo dev-login; TẮT khi bàn giao
         value: "true"
+      - key: PLATFORM_ADMIN_EMAIL     # tài khoản console Zoustec (/zoustec/login)
+        value: "admin@zoustec.tw"
+      - key: PLATFORM_ADMIN_PASSWORD  # đặt trong dashboard; đổi env = rotate password
+        sync: false
       - key: RUN_MIGRATIONS_ON_START
         value: "true"
       - key: SEED_ON_START

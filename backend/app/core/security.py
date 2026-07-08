@@ -66,3 +66,33 @@ def decode_session_token(token: str) -> TokenIdentity:
         raise ApiError(401, "invalid_token", "Session token is malformed.") from exc
 
     return TokenIdentity(subject_id=subject_id, tenant_id=tenant_id, role=role)
+
+
+# ---------------------------------------------------------------- passwords
+# Zoustec console sign-in (platform admins). Stdlib scrypt — no extra deps;
+# format: scrypt$<salt_hex>$<digest_hex>.
+
+import hashlib
+import hmac
+import secrets
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
+    return f"scrypt${salt.hex()}${digest.hex()}"
+
+
+def verify_password(password: str, stored: str | None) -> bool:
+    if not stored:
+        return False
+    try:
+        scheme, salt_hex, digest_hex = stored.split("$")
+        if scheme != "scrypt":
+            return False
+        digest = hashlib.scrypt(
+            password.encode(), salt=bytes.fromhex(salt_hex), n=2**14, r=8, p=1
+        )
+        return hmac.compare_digest(digest.hex(), digest_hex)
+    except (ValueError, TypeError):
+        return False
