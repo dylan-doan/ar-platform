@@ -192,35 +192,65 @@ mang tên khách.
   **fallback channel platform** — vì member vào bằng app của tenant nhưng
   tenant ADMIN vẫn login dashboard bằng app chung.
 
-### Các bước setup cho một khách (làm tay, ~10 phút — LINE không có API tạo channel)
+### Ai tạo channel? — Zoustec làm trọn gói được, khách không phải mò console LINE
+
+Spec không yêu cầu khách tự tạo channel (Module LINE §III.4 chỉ đòi
+"hướng dẫn quy trình cấu hình cho người không phải kỹ sư"). LINE Đài Loan
+có [hướng dẫn chính thức cho bên tích hợp làm hộ khách](https://tw.linebiz.com/manual/line-official-account/line-porvider-and-channel-intro/):
+được phép, với quy tắc bắt buộc — **mỗi khách một provider riêng, đặt đúng
+tên khách**, không dồn nhiều khách vào một provider "Zoustec". Lý do:
+
+- Màn consent khi login hiện **tên provider** → tên khách = đúng white-label
+  (spec §VIII).
+- **userId cấp theo provider** — chung provider là chung userId giữa các
+  channel → dữ liệu người chơi giữa các tenant đối chiếu chéo được, trái
+  cách ly đa tenant (spec §XII).
+- **Channel không chuyển provider được sau khi tạo** — đặt sai chỗ là phải
+  tạo lại, mà tạo lại thì toàn bộ userId đổi (mất mapping thành viên).
+
+Hai tình huống ([best practice của LINE](https://developers.line.biz/en/docs/line-developers-console/best-practices-for-provider-and-channel-management/)):
+
+| Khách | Cách làm |
+|---|---|
+| Gói one_time / khách nhỏ, chưa có gì trên LINE | Zoustec tạo provider mang tên khách ngay từ account LINE Developers của Zoustec |
+| SaaS dài hạn, chính phủ, hoặc **đã có OA riêng** | Khách mời Zoustec làm **Admin** provider của họ (1 link mời, không cần kỹ thuật) — bắt buộc nếu muốn link OA ↔ Login channel (phải cùng provider) và giữ quyền sở hữu dữ liệu để bàn giao |
+
+### Các bước setup cho một khách (Zoustec thao tác, ~5 phút — LINE không có API tạo channel)
 
 1. **Tạo channel**: [LINE Developers Console](https://developers.line.biz)
-   → provider CỦA KHÁCH (hoặc tạo provider mới mang tên khách) → Create
-   channel → **LINE Login** → điền tên/ảnh thương hiệu khách → tạo.
-2. **Tạo LIFF app** trong channel đó: tab LIFF → Add → Size **Full** →
-   **Endpoint URL = `https://<domain-khách>/`** (root!) → Scope `profile` +
-   `openid` → bật "LINE Login".
-3. Copy **LIFF ID** (dạng `1234567890-AbCdEfGh`).
-4. **Console platform** (`/admin/console`) → chọn tenant → ô "LIFF ID
-   (Option B — 客戶自有 LINE)" → dán → lưu. (Channel ID tự suy từ tiền tố
-   LIFF ID, không cần nhập.)
-5. Kiểm tra: mở website khách → 開始旅程 → link giờ là
+   → provider của khách (theo bảng trên) → Create channel → **LINE Login**
+   → điền tên/ảnh thương hiệu khách → tạo. Nhớ **Publish** channel
+   (mặc định Developing — chỉ admin/tester của channel login được).
+2. Copy **Channel ID + Channel Secret** (tab Basic settings).
+3. **Console Zoustec** (`/zoustec/console`) → 白標設定 của tenant → nhập
+   Channel ID + Channel Secret → bấm **自動建立 LIFF** — platform tự tạo
+   LIFF app (Size Full, Endpoint = `https://<domain-khách>/`, scope
+   `profile`+`openid`) và lưu LIFF ID vào tenant. Khách đổi domain sau này:
+   bấm lại nút là endpoint tự cập nhật.
+4. Kiểm tra: mở website khách → 開始旅程 → link giờ là
    `liff.line.me/<LIFF-của-khách>/...`; login xong header LIFF hiện domain
    khách. Gỡ trắng nhãn = xóa ô LIFF ID trong console.
+
+(Cách tay cũ vẫn dùng được khi không muốn platform giữ Channel Secret:
+tự tạo LIFF app trong console LINE — Size Full, Endpoint = root domain
+khách — rồi dán LIFF ID vào ô "LIFF ID (Option B)"; Channel ID tự suy từ
+tiền tố LIFF ID.)
 
 ### Đánh giá tự động hóa (spec mục 5 — deliverable)
 
 | Thao tác | API? |
 |---|---|
-| Tạo Provider / LINE Login channel | ❌ Không có API công khai — thủ công (checklist 5 bước trên) |
-| Tạo / sửa / xóa LIFF app trong channel | ✅ LIFF Server API `POST/PUT/DELETE https://api.line.me/liff/v1/apps` |
+| Tạo Provider / LINE Login channel | ❌ Không có API công khai (chỉ đối tác certified của LINE có) — thủ công, nhưng là việc của Zoustec, ~3 phút/khách |
+| Tạo / sửa / xóa LIFF app trong channel | ✅ LIFF Server API `POST/PUT/DELETE https://api.line.me/liff/v1/apps` — đã làm, nút 自動建立 LIFF |
 
 Auth: channel access token từ **Channel ID + Channel Secret** (grant
-`client_credentials`, `POST /oauth2/v3/token`). → Quy trình lai khi thương mại
-hóa: khách tạo channel tay (1 lần) + dán Channel ID/Secret vào console →
-platform tự tạo LIFF app đúng endpoint, tự cập nhật endpoint khi khách đổi
-domain (`PUT /liff/v1/apps/{id}`). Đánh đổi: platform lưu Channel Secret
-(mã hóa) — ghi vào điều khoản dịch vụ.
+`client_credentials`, `POST /oauth2/v3/token`, fallback v2). → Quy trình
+khi thương mại hóa: Zoustec tạo channel tay (1 lần/khách, checklist trên)
++ nhập Channel ID/Secret vào console → platform tự tạo LIFF app đúng
+endpoint, tự cập nhật endpoint khi khách đổi domain
+(`PUT /liff/v1/apps/{id}`). Với khách, trải nghiệm là trọn gói. Đánh đổi:
+platform lưu Channel Secret (cột `line_channel_secret`, không bao giờ trả
+ra ngoài; Neon mã hóa at-rest) — ghi vào điều khoản dịch vụ.
 
 Điều kiện tiên quyết: tenant đã gắn custom domain hoạt động (mục trên) —
 endpoint LIFF trỏ về domain đó. Lưu ý: đổi endpoint một LIFF app đang dùng
