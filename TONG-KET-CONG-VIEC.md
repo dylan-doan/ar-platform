@@ -1,7 +1,7 @@
 # Tổng kết công việc — Zoustec AR Stamp Platform
 
 > File này để mở đầu session làm việc mới: trạng thái hiện tại, những gì đã
-> làm, còn gì chưa làm, và các "bẫy" đã biết. Cập nhật lần cuối: **2026-07-08**.
+> làm, còn gì chưa làm, và các "bẫy" đã biết. Cập nhật lần cuối: **2026-07-09**.
 >
 > Tài liệu chi tiết đi kèm: [TONG-QUAN-DU-AN.md](TONG-QUAN-DU-AN.md) (kiến trúc
 > + nghiệp vụ), [CUSTOM-DOMAIN.md](CUSTOM-DOMAIN.md) (phương pháp white-label
@@ -114,6 +114,30 @@ Chẩn đoán đáng nhớ: "BE load chập" = 3 tầng — (1) lệch region Re
 (nặng nhất, đã sửa), (2) cold start free tier (chưa sửa — xem mục 5),
 (3) thiếu loading UX (chưa làm).
 
+## 3c. Session 2026-07-09 — việc đã làm (commit `2c91463`…`4f109ed`)
+
+Session sửa UX/nghiệp vụ 3 màn quản trị. Không đổi schema/migration.
+
+| Commit | Nội dung |
+|---|---|
+| `2c91463` | **AR Studio — 3 việc**: (1) **Rig 422/400 báo dễ hiểu**: payload/path Meshy `/rigging` VỐN ĐÚNG theo docs — 422 = model không phải nhân vật người hợp lệ (pose estimation failed), 400 = input task hết hạn (Meshy xóa task sau 3 ngày). Thêm `RiggingError`, map 2 mã thành câu zh-TW, `run_rigging_job` lưu nguyên văn vào `rig.error` (không còn `submit failed: ...` thô). (2) **GLB 404 job cũ**: job tạo trước `add9f86` lưu GLB ra disk ephemeral → redeploy mất → preview trống im lặng. `GlbPreview` thêm `onError`; AR Studio hiện cảnh báo "3D檔已遺失" + nút xóa nhanh. Job mới (GLB trong DB) không bị. (3) **Builder**: gỡ thanh stepper 1-2-3 (範本／內容／匯出) hardcode tĩnh gây hiểu nhầm "mãi không active" |
+| `04016e6` | **Dashboard 完成率 + builder chặn ngưỡng**: 完成率 cũ = `rewards_unlocked/participants` → luôn 0% khi 集章門檻 > số nhiệm vụ (reward không bao giờ mở khóa). Đổi thành `total_stamps / Σ(participants_of_event × tasks_of_event)` = tỷ lệ lượt nhiệm vụ thực sự hoàn thành, độc lập ngưỡng, luôn ≤100% (2 thừa số đều DISTINCT nên không fan-out bởi join Task×Stamp). Builder: ô 集章門檻 thêm `max`=số nhiệm vụ, cảnh báo vàng khi vượt, tự clamp khi lưu. Tests +1 assert (73/73) |
+| `4f109ed` | **Builder khóa AR 目標圖 theo model**: GLB + target là 1 cặp (cùng sinh từ 1 ảnh 2D ở AR Studio) → bỏ dropdown chọn target riêng (ngăn ghép mesh model A + marker model B). Chọn model → target tự bám, hiện read-only "已與上方模型配對"; model AI chưa compile target → cảnh báo + **chặn lưu**; demo→target demo; custom→vẫn cho nhập .mind URL. `selectTask` tái ghép target theo model khi mở task cũ lệch |
+
+**Chẩn đoán đáng nhớ (Meshy rigging 422 vs 400)**: rigging chỉ nhận model
+**người, có tay chân rõ, có texture, mặt hướng +Z**. Model không phải người
+→ **422** (pose estimation failed). Task `input_task_id` hết hạn 3 ngày →
+**400** (invalid input task), KHÔNG phải 422. Payload `{"input_task_id":...}`
+là đủ và đúng — sửa payload không giải quyết 422. (Nguồn: docs.meshy.ai/en/api/rigging)
+
+**2 việc thủ công user cần làm trên prod** (dữ liệu cũ, code không tự sửa
+được): (1) sự kiện `Tham quan Vinh` đặt 集章門檻=2 nhưng chỉ 1 nhiệm vụ →
+vào builder đổi về 1 (hoặc thêm nhiệm vụ) rồi Lưu để reward mở khóa được;
+(2) job `image_vinh_sk_bnk` bị 404 (GLB mất theo disk cũ) → xóa trong AR
+Studio rồi upload lại. Lưu ý reward chỉ mở khóa TẠI thời điểm người chơi
+hoàn thành đủ ngưỡng — hạ ngưỡng sau đó cần họ quét/làm lại 1 lần (chưa có
+cấp bù hồi tố — xem mục 5 nếu cần).
+
 ## 4. Kiến trúc — điểm không được quên
 
 - **RLS pinned connection**: `_guc_session()` trong `backend/app/db/session.py`
@@ -169,6 +193,11 @@ Chẩn đoán đáng nhớ: "BE load chập" = 3 tầng — (1) lệch region Re
    (thư viện động tác rộng hơn walk/run). Meshy đã chạy thật trên prod —
    nhớ revoke key `msy_…` đã lộ trong chat khi bàn giao (cùng đợt đổi
    password Neon).
+7. **Cấp bù reward hồi tố** (chưa làm — session 2026-07-09): reward chỉ mở
+   khóa tại thời điểm hoàn thành nhiệm vụ đủ ngưỡng (`services/tasks.py`).
+   Nếu admin hạ 集章門檻 sau khi người chơi đã đạt, họ phải làm/quét lại 1
+   lần mới được cấp. Có thể thêm job quét lại toàn tenant tạo `RewardClaim`
+   cho member đã đủ ngưỡng theo cấu hình mới.
 
 ## 6. Chạy local
 
@@ -176,7 +205,7 @@ Chẩn đoán đáng nhớ: "BE load chập" = 3 tầng — (1) lệch region Re
 # DB (Docker, project zoustec-ar-line): port 5433 dev / 5434 test
 cd backend && .venv/bin/uvicorn app.main:app --reload --port 8000  # Python 3.12 (uv)
 cd nextjs-zoustec && npm run dev                                   # port 3000
-cd backend && .venv/bin/python -m pytest tests/ -q                 # 66 tests
+cd backend && .venv/bin/python -m pytest tests/ -q                 # 73 tests
 ```
 
 Biến môi trường mẫu: xem `render.yaml` + DEPLOY.md. Dev login: nhập
