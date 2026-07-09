@@ -223,6 +223,7 @@ Camera AR fail
 | # | Thiết bị | OS | LINE ver | Môi trường | Camera mở | FPS | Kết luận | Ghi chú |
 |---|---|---|---|---|---|---|---|---|
 | 1 | iPhone (máy nghiệm thu của Đức) | iOS (bản hiện hành) | bản hiện hành | LIFF thật (prod) | ✅ | *chưa đo số* | **達成** | Nghiệm thu chạy thật luồng QR+AR 07–08/07; chạy lại `/diag` để có số FPS |
+| 1b | Android (máy test của Đức) | Android | bản hiện hành | LIFF thật trong LINE | ✅ | *chưa đo số* | **達成** | Test 2026-07-09: camera + AR chạy được trong LINE; chạy `/diag` để lấy số FPS |
 | 2 | Apple M4 (Mac, tham chiếu) | macOS 15 | — | Chrome 149 headless + camera giả | ✅ 440ms | 72 | 達成 | Baseline benchmark |
 | 3 | — mô phỏng tầm trung (CPU 4x) | — | — | như trên | ✅ | 40 | 達成 | Mô phỏng, không thay máy thật |
 | 4 | — mô phỏng máy yếu (CPU 6x) | — | — | như trên | ✅ | 28 | 達成 (sát ngưỡng) | 30 khung giật/8s |
@@ -232,9 +233,10 @@ Camera AR fail
 | 8 | Android tầm trung (Samsung A-series...) | Android 12–14 | | LIFF | | | *(chờ test)* | Ưu tiên test |
 | 9 | Tablet/iPad (nếu khách quan tâm) | | | LIFF | | | *(chờ test)* | |
 
-**Khoảng trống lớn nhất hiện tại: chưa có thiết bị Android thật nào được
-test.** Khuyến nghị tối thiểu trước bàn giao: 1 iPhone đời thấp + 1 Android
-tầm trung (2 hàng #6, #8) — đó là 2 cấu hình rủi ro nhất.
+**Cập nhật 2026-07-09**: đã có 1 datapoint Android thật (hàng #1b — chạy được
+trong LINE). Khuyến nghị tối thiểu trước bàn giao: thêm 1 iPhone đời thấp +
+1 Android tầm trung khác model (2 hàng #6, #8), và chạy `/diag` trên các máy
+đã test để có số FPS cụ thể.
 
 Cột "đạt" định nghĩa: camera mở được trong LIFF + engine AR chạy + FPS ≥ 24.
 
