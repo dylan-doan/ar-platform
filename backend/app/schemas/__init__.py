@@ -364,6 +364,12 @@ class Model3DAdjustRequest(BaseModel):
     variant: Literal["static", "walk", "run"] | None = None
 
 
+class Model3DRetextureRequest(BaseModel):
+    """Per-model style description → engine retexture pass (e.g. Meshy)."""
+
+    prompt: str = Field(min_length=2, max_length=600)
+
+
 # ---------------------------------------------------------------- template export (headless)
 
 class ExportKeyOut(BaseModel):

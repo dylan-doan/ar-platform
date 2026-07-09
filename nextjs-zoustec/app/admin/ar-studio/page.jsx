@@ -49,7 +49,8 @@ export default function Page() {
   const [busy, setBusy] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [compiling, setCompiling] = useState({}); // jobId -> % | 'done' | 'failed'
-  const [prompt, setPrompt] = useState('');       // optional engine hint (style/material)
+  const [prompt, setPrompt] = useState('');       // optional hint for the NEXT upload
+  const [jobPrompt, setJobPrompt] = useState(''); // per-model description (retexture)
   const [usage, setUsage] = useState({});         // glbUrl -> ["event／task", …]
   const [flash, setFlash] = useState('');
   const [error, setError] = useState('');
@@ -62,6 +63,7 @@ export default function Page() {
   function pick(job) {
     setSel(job);
     setAdjust(job ? { scale: job.params?.scale ?? 0.4, color_tint: job.params?.color_tint || '', name: job.name || '' } : null);
+    setJobPrompt(job?.params?.prompt || '');
   }
 
   async function refresh(selectId) {
@@ -100,10 +102,12 @@ export default function Page() {
     return () => window.removeEventListener('focus', onFocus);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll while any job is still generating (model or rigging/animation).
+  // Poll while any job is still generating (model, rigging or retexture).
   useEffect(() => {
     if (!jobs?.some((j) =>
-      j.status === 'pending' || j.status === 'processing' || j.params?.rig?.status === 'processing'
+      j.status === 'pending' || j.status === 'processing'
+      || j.params?.rig?.status === 'processing'
+      || j.params?.retexture?.status === 'processing'
     )) return;
     const t = setInterval(async () => {
       try { await refresh(); } catch { /* keep polling */ }
@@ -168,6 +172,21 @@ export default function Page() {
       note('已開始生成 — AI 處理中');
       compileTarget(job.id, file); // runs in the background with its own progress
     } catch (e) { if (!guard(e)) setError(e.message); } finally { setBusy(''); if (fileRef.current) fileRef.current.value = ''; }
+  }
+
+  /** Re-texture THIS model from its description (engine capability). */
+  async function retexture() {
+    if (!sel || busy) return;
+    if (jobPrompt.trim().length < 2) return setError('請先輸入材質／風格描述');
+    setBusy('retexture'); setError('');
+    try {
+      const updated = await adminApi(`/api/admin/model3d/jobs/${sel.id}/retexture`, {
+        method: 'POST', body: { prompt: jobPrompt.trim() },
+      });
+      setJobs(jobs.map((j) => (j.id === updated.id ? updated : j)));
+      pick(updated);
+      note('材質重生中 — 約 1–3 分鐘');
+    } catch (e) { if (!guard(e)) setError(e.message); } finally { setBusy(''); }
   }
 
   /** Auto-rig + preset walk/run animations (engine capability, e.g. Meshy). */
@@ -258,11 +277,11 @@ export default function Page() {
         <span style={{fontSize:'10.5px', fontWeight:'500'}}>PNG / JPG / WebP · ≤10MB · 這張圖也會成為現場辨識圖</span>
       </button>
 
-      <div style={{fontSize:'11px', fontWeight:'700', letterSpacing:'.08em', textTransform:'uppercase', color:'var(--text-subtle)', margin:'14px 0 7px'}}>生成需求（選填）</div>
+      <div style={{fontSize:'11px', fontWeight:'700', letterSpacing:'.08em', textTransform:'uppercase', color:'var(--text-subtle)', margin:'14px 0 7px'}}>生成需求（本次上傳套用・選填）</div>
       <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} maxLength={600} rows={2}
         placeholder="描述風格／材質，例如：毛絨玩具質感、卡通風格、金屬盔甲…"
         style={{width:'100%', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'8px 11px', fontSize:'12px', color:'var(--text-strong)', outline:'none', resize:'vertical', fontFamily:'inherit', lineHeight:1.5}} />
-      <div style={{fontSize:'10px', color:'var(--text-subtle)', marginTop:'4px', lineHeight:1.5}}>AI 引擎會依此描述生成表面材質（影響外觀，不含動作；示範引擎會忽略）。</div>
+      <div style={{fontSize:'10px', color:'var(--text-subtle)', marginTop:'4px', lineHeight:1.5}}>套用於下一次上傳。已生成的模型請在右側「材質描述」修改並重生。</div>
 
       {error && <div style={{marginTop:'12px', padding:'10px', borderRadius:'8px', background:'var(--status-danger-bg)', color:'var(--status-danger-fg)', fontSize:'12px', fontWeight:'600'}}>{error}</div>}
 
@@ -379,6 +398,35 @@ export default function Page() {
           )}
         </Step>
         ); })()}
+
+        {/* Per-model style description → engine retexture pass */}
+        {sel.status === 'succeeded' && (() => {
+          const rt = sel.params?.retexture;
+          return (
+            <>
+              <div style={{fontSize:'13px', fontWeight:'800', color:'var(--text-strong)', margin:'18px 0 8px'}}>材質描述（本模型）</div>
+              <textarea value={jobPrompt} onChange={(e) => setJobPrompt(e.target.value)} maxLength={600} rows={2}
+                placeholder="例如：毛絨玩具質感、卡通風格、金屬盔甲…"
+                disabled={rt?.status === 'processing'}
+                style={{width:'100%', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'8px 11px', fontSize:'12px', color:'var(--text-strong)', outline:'none', resize:'vertical', fontFamily:'inherit', lineHeight:1.5}} />
+              {rt?.status === 'processing' ? (
+                <div style={{display:'flex', alignItems:'center', gap:'9px', marginTop:'7px', padding:'10px 12px', borderRadius:'9px', background:'var(--primary-50)', color:'var(--primary-700)', fontSize:'12px', fontWeight:'700'}}>
+                  <span style={{fontSize:'15px', display:'inline-flex', lineHeight:'0', animation:'spin 1.2s linear infinite'}}><Icon name="loader" /></span>
+                  材質重生中…（約 1–3 分鐘）
+                </div>
+              ) : (
+                <>
+                  {rt?.status === 'failed' && <div style={{marginTop:'7px', padding:'9px 11px', borderRadius:'8px', background:'var(--status-danger-bg)', color:'var(--status-danger-fg)', fontSize:'11.5px', fontWeight:'600', lineHeight:1.5}}>{rt.error || '材質重生失敗'}</div>}
+                  <button onClick={retexture} disabled={busy === 'retexture'}
+                    style={{marginTop:'7px', width:'100%', height:'36px', borderRadius:'9px', border:'1.5px solid var(--primary-600)', background:'#fff', color:'var(--primary-600)', fontSize:'12.5px', fontWeight:'700', cursor:'pointer', opacity: busy === 'retexture' ? .6 : 1}}>
+                    {busy === 'retexture' ? '啟動中…' : '依描述重新生成材質'}
+                  </button>
+                  <div style={{fontSize:'10px', color:'var(--text-subtle)', marginTop:'4px', lineHeight:1.5}}>約 10 credits。形狀不變、外觀重繪；已生成的動作會清除，可重新生成。</div>
+                </>
+              )}
+            </>
+          );
+        })()}
 
         {/* Actions — auto-rig + preset animations (engine capability) */}
         {sel.status === 'succeeded' && (() => {

@@ -71,18 +71,36 @@ async def run_model3d_job(tenant_id: uuid.UUID, job_id: uuid.UUID) -> None:
         if result.status == "processing":
             continue
 
+        # Provider-hosted URLs are time-limited AND the container disk is
+        # ephemeral — persist remote GLBs into in-DB media before recording.
+        glb_url, download_error = result.glb_url, None
+        if result.status == "succeeded" and glb_url and glb_url.startswith("http"):
+            try:
+                data = await _download_bytes(glb_url)
+            except Exception as exc:
+                download_error = f"engine GLB download failed: {exc}"[:1000]
+            else:
+                async with tenant_session(tenant_id) as session:
+                    asset = MediaAsset(
+                        tenant_id=tenant_id, content_type="model/gltf-binary", data=data
+                    )
+                    session.add(asset)
+                    await session.flush()
+                    glb_url = f"/media/db/{asset.id}"
+                    await session.commit()
+
         async with tenant_session(tenant_id) as session:
             job = (
                 await session.execute(
                     select(Model3DJob).where(Model3DJob.id == job_id)
                 )
             ).scalar_one()
-            if result.status == "succeeded":
+            if result.status == "succeeded" and not download_error:
                 job.status = "succeeded"
-                job.result_glb_url = result.glb_url
+                job.result_glb_url = glb_url
             else:
                 job.status = "failed"
-                job.error = (result.error or "generation failed")[:1000]
+                job.error = download_error or (result.error or "generation failed")[:1000]
             await session.commit()
         logger.info("model3d_job_done", job_id=str(job_id), status=result.status)
         return
@@ -96,17 +114,21 @@ async def run_model3d_job(tenant_id: uuid.UUID, job_id: uuid.UUID) -> None:
         await session.commit()
 
 
-async def _set_rig_state(tenant_id: uuid.UUID, job_id: uuid.UUID, rig: dict, extra: dict | None = None) -> None:
-    """Merge rigging state (and optional extra keys) into job.params — the
-    JSONB column needs a fresh dict for change detection."""
+async def _merge_params(tenant_id: uuid.UUID, job_id: uuid.UUID, patch: dict) -> None:
+    """Merge keys into job.params — the JSONB column needs a fresh dict for
+    SQLAlchemy change detection."""
     async with tenant_session(tenant_id) as session:
         job = (
             await session.execute(select(Model3DJob).where(Model3DJob.id == job_id))
         ).scalar_one_or_none()
         if job is None:
             return
-        job.params = {**(job.params or {}), "rig": rig, **(extra or {})}
+        job.params = {**(job.params or {}), **patch}
         await session.commit()
+
+
+async def _set_rig_state(tenant_id: uuid.UUID, job_id: uuid.UUID, rig: dict, extra: dict | None = None) -> None:
+    await _merge_params(tenant_id, job_id, {"rig": rig, **(extra or {})})
 
 
 async def run_rigging_job(tenant_id: uuid.UUID, job_id: uuid.UUID) -> None:
@@ -192,4 +214,94 @@ async def run_rigging_job(tenant_id: uuid.UUID, job_id: uuid.UUID) -> None:
 
     await _set_rig_state(
         tenant_id, job_id, {"status": "failed", "error": "timed out waiting for rigging"}
+    )
+
+
+async def run_retexture_job(tenant_id: uuid.UUID, job_id: uuid.UUID, prompt: str) -> None:
+    """Background task: re-texture a finished model from a text style prompt.
+    On success the job serves the new GLB (persisted in-DB) and future rigging
+    applies to the retextured model; stale rig variants are dropped."""
+    provider = get_model3d_provider()
+
+    async with tenant_session(tenant_id) as session:
+        job = (
+            await session.execute(
+                select(Model3DJob).where(
+                    Model3DJob.id == job_id, Model3DJob.tenant_id == tenant_id
+                )
+            )
+        ).scalar_one_or_none()
+        if job is None or not job.provider_job_id:
+            return
+        input_task_id = job.provider_job_id
+
+    try:
+        submit = await provider.submit_retexture(input_task_id, prompt)
+    except Exception as exc:
+        await _merge_params(
+            tenant_id, job_id,
+            {"retexture": {"status": "failed", "error": f"submit failed: {exc}"[:500]}},
+        )
+        logger.warning("retexture_submit_failed", job_id=str(job_id), error=str(exc))
+        return
+    await _merge_params(
+        tenant_id, job_id,
+        {"retexture": {"status": "processing", "taskId": submit.provider_job_id}},
+    )
+
+    for _ in range(MAX_POLLS):
+        await asyncio.sleep(POLL_INTERVAL_S)
+        try:
+            result = await provider.poll_retexture(submit.provider_job_id)
+        except Exception as exc:  # transient provider errors: keep polling
+            logger.info("retexture_poll_error", job_id=str(job_id), error=str(exc))
+            continue
+        if result.status == "processing":
+            continue
+
+        if result.status != "succeeded" or not result.glb_url:
+            await _merge_params(
+                tenant_id, job_id,
+                {"retexture": {"status": "failed", "error": (result.error or "retexture failed")[:500]}},
+            )
+            return
+
+        try:
+            data = await _download_bytes(result.glb_url)
+        except Exception as exc:
+            await _merge_params(
+                tenant_id, job_id,
+                {"retexture": {"status": "failed", "error": f"GLB download failed: {exc}"[:500]}},
+            )
+            return
+
+        async with tenant_session(tenant_id) as session:
+            job = (
+                await session.execute(select(Model3DJob).where(Model3DJob.id == job_id))
+            ).scalar_one_or_none()
+            if job is None:
+                return
+            asset = MediaAsset(
+                tenant_id=tenant_id, content_type="model/gltf-binary", data=data
+            )
+            session.add(asset)
+            await session.flush()
+            params = {**(job.params or {})}
+            # Old rig/variants textured the previous look — drop them; the
+            # studio offers re-rigging on the new model.
+            for stale in ("rig", "variants", "activeVariant"):
+                params.pop(stale, None)
+            params["prompt"] = prompt.strip()[:600]
+            params["retexture"] = {"status": "succeeded"}
+            job.params = params
+            job.result_glb_url = f"/media/db/{asset.id}"
+            # Rigging chains off the LATEST provider task (retextured model).
+            job.provider_job_id = submit.provider_job_id
+            await session.commit()
+        logger.info("retexture_job_done", job_id=str(job_id))
+        return
+
+    await _merge_params(
+        tenant_id, job_id,
+        {"retexture": {"status": "failed", "error": "timed out waiting for retexture"}},
     )

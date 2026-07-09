@@ -27,8 +27,6 @@ from dataclasses import dataclass
 
 import httpx
 
-from app.core.config import get_settings
-
 
 @dataclass(frozen=True)
 class SubmitResult:
@@ -57,6 +55,8 @@ class Model3DProvider(ABC):
     # Auto-rig + preset animations (walk/run). Engines without it keep the
     # default; the API returns an explicit "unsupported" error to the studio.
     supports_rigging: bool = False
+    # Text-prompt re-texturing of a finished model (per-model style edits).
+    supports_retexture: bool = False
 
     @abstractmethod
     async def submit(self, image_path: str, job_id: str, prompt: str = "") -> SubmitResult:
@@ -74,6 +74,14 @@ class Model3DProvider(ABC):
 
     async def poll_rigging(self, rig_task_id: str) -> RigPollResult:
         """Check rigging progress; terminal result carries animated GLB URLs."""
+        raise NotImplementedError
+
+    async def submit_retexture(self, input_task_id: str, prompt: str) -> SubmitResult:
+        """Start re-texturing a previously generated model from a text prompt."""
+        raise NotImplementedError
+
+    async def poll_retexture(self, retexture_task_id: str) -> PollResult:
+        """Check retexture progress; terminal result carries the new GLB URL."""
         raise NotImplementedError
 
 
@@ -124,6 +132,7 @@ class MeshyModel3DProvider(Model3DProvider):
 
     name = "meshy"
     supports_rigging = True
+    supports_retexture = True
     BASE = "https://api.meshy.ai/openapi/v1"
 
     def __init__(self) -> None:
@@ -172,8 +181,9 @@ class MeshyModel3DProvider(Model3DProvider):
             glb = (body.get("model_urls") or {}).get("glb")
             if not glb:
                 return PollResult(status="failed", error="meshy returned no GLB url")
-            local = await self._download_to_media(glb, provider_job_id)
-            return PollResult(status="succeeded", glb_url=local)
+            # Remote (time-limited) URL — the service downloads it into in-DB
+            # media; the container disk is ephemeral, files there don't survive.
+            return PollResult(status="succeeded", glb_url=glb)
         if status in ("FAILED", "CANCELED"):
             return PollResult(status="failed", error=body.get("task_error", {}).get("message", status))
         return PollResult(status="processing")
@@ -212,18 +222,40 @@ class MeshyModel3DProvider(Model3DProvider):
             )
         return RigPollResult(status="processing")
 
-    async def _download_to_media(self, url: str, provider_job_id: str) -> str:
-        """Persist the provider-hosted GLB under /media (provider URLs expire)."""
-        settings = get_settings()
-        os.makedirs(settings.media_dir, exist_ok=True)
-        filename = f"model3d-{provider_job_id}.glb"
-        path = os.path.join(settings.media_dir, filename)
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            with open(path, "wb") as f:
-                f.write(resp.content)
-        return f"/media/{filename}"
+    async def submit_retexture(self, input_task_id: str, prompt: str) -> SubmitResult:
+        """Re-texture a finished model from a text style description."""
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{self.BASE}/retexture",
+                headers=self._headers(),
+                json={
+                    "input_task_id": input_task_id,
+                    "text_style_prompt": prompt.strip()[:600],
+                },
+            )
+        resp.raise_for_status()
+        return SubmitResult(provider_job_id=resp.json()["result"])
+
+    async def poll_retexture(self, retexture_task_id: str) -> PollResult:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(
+                f"{self.BASE}/retexture/{retexture_task_id}", headers=self._headers()
+            )
+        if resp.status_code != 200:
+            return PollResult(status="failed", error=f"meshy retexture poll {resp.status_code}")
+        body = resp.json()
+        status = body.get("status")
+        if status == "SUCCEEDED":
+            glb = (body.get("model_urls") or {}).get("glb")
+            if not glb:
+                return PollResult(status="failed", error="meshy returned no GLB url")
+            return PollResult(status="succeeded", glb_url=glb)
+        if status in ("FAILED", "CANCELED"):
+            return PollResult(
+                status="failed",
+                error=(body.get("task_error") or {}).get("message") or status,
+            )
+        return PollResult(status="processing")
 
 
 # ---------------------------------------------------------------------------

@@ -16,9 +16,9 @@ from app.core.config import get_settings
 from app.core.errors import ApiError
 from app.models import MediaAsset, Model3DJob
 from app.providers.model3d import get_model3d_provider
-from app.schemas import Model3DAdjustRequest, Model3DJobOut
+from app.schemas import Model3DAdjustRequest, Model3DJobOut, Model3DRetextureRequest
 from app.services.audit import record_audit
-from app.services.model3d import run_model3d_job, run_rigging_job
+from app.services.model3d import run_model3d_job, run_retexture_job, run_rigging_job
 
 router = APIRouter(prefix="/api/admin/model3d", tags=["model3d"])
 
@@ -210,6 +210,45 @@ async def animate_job(
     await ctx.session.commit()
 
     background.add_task(run_rigging_job, ctx.identity.tenant_id, job.id)
+    return Model3DJobOut.model_validate(job)
+
+
+@router.post("/jobs/{job_id}/retexture", response_model=Model3DJobOut)
+async def retexture_job(
+    job_id: uuid.UUID,
+    body: Model3DRetextureRequest,
+    background: BackgroundTasks,
+    ctx: AuthContext = Depends(tenant_admin_context),
+) -> Model3DJobOut:
+    """Re-texture the model from a per-model text description (engine
+    capability — Meshy today). The new GLB replaces the served model; stale
+    rig variants are dropped and can be regenerated."""
+    job = await _get_job(ctx, job_id)
+    provider = get_model3d_provider()
+    if not provider.supports_retexture:
+        raise ApiError(422, "retexture_unsupported", "示範引擎不支援材質重生 — 需使用正式 3D 引擎（如 Meshy）。")
+    if job.status != "succeeded" or not job.provider_job_id:
+        raise ApiError(422, "job_not_ready", "3D 模型生成完成後才能重生材質。")
+    params = job.params or {}
+    if (params.get("retexture") or {}).get("status") == "processing":
+        raise ApiError(409, "retexture_in_progress", "材質重生進行中，請稍候。")
+    if (params.get("rig") or {}).get("status") == "processing":
+        raise ApiError(409, "rigging_in_progress", "動作生成進行中，請稍候。")
+
+    job.params = {**params, "retexture": {"status": "processing"}}
+    await record_audit(
+        ctx.session,
+        tenant_id=ctx.identity.tenant_id,
+        actor_type="tenant_admin",
+        actor_id=ctx.identity.subject_id,
+        action="model3d.retexture_started",
+        entity_type="model3d_job",
+        entity_id=job.id,
+        data={"prompt": body.prompt[:100]},
+    )
+    await ctx.session.commit()
+
+    background.add_task(run_retexture_job, ctx.identity.tenant_id, job.id, body.prompt)
     return Model3DJobOut.model_validate(job)
 
 

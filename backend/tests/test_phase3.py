@@ -152,6 +152,94 @@ async def test_model3d_animate_flow(client, demo, monkeypatch):
     assert r.json()["result_glb_url"] == static_url
 
 
+async def test_model3d_retexture_flow_and_remote_glb_persistence(client, demo, monkeypatch):
+    # (1) Remote engine GLBs must be persisted in-DB (ephemeral disk!), and
+    # (2) per-model retexture: prompt → new GLB served, stale rig dropped.
+    from app.providers import model3d as providers
+    from app.services import model3d as m3d_service
+
+    token = await login(client, "alpha", "admin-a")
+    created = await client.post(
+        "/api/admin/model3d/jobs?name=Restyle Me", headers=bearer(token), files=png_upload(),
+    )
+    job = created.json()
+    for _ in range(30):
+        await asyncio.sleep(0.5)
+        job = (
+            await client.get(f"/api/admin/model3d/jobs/{job['id']}", headers=bearer(token))
+        ).json()
+        if job["status"] in ("succeeded", "failed"):
+            break
+    assert job["status"] == "succeeded"
+
+    # Default (mock) engine → explicit unsupported error.
+    r = await client.post(f"/api/admin/model3d/jobs/{job['id']}/retexture",
+                          headers=bearer(token), json={"prompt": "furry plush style"})
+    assert r.status_code == 422 and r.json()["error"]["code"] == "retexture_unsupported"
+
+    class FakeEngine(providers.MockModel3DProvider):
+        supports_retexture = True
+
+        async def poll(self, provider_job_id):
+            # Remote URL — exercises the download-to-DB path of generation.
+            return providers.PollResult(
+                status="succeeded", glb_url="https://engine.example/gen.glb"
+            )
+
+        async def submit_retexture(self, input_task_id, prompt):
+            assert prompt == "furry plush style"
+            return providers.SubmitResult(provider_job_id=f"rtx-{input_task_id}")
+
+        async def poll_retexture(self, retexture_task_id):
+            return providers.PollResult(
+                status="succeeded", glb_url="https://engine.example/retex.glb"
+            )
+
+    monkeypatch.setattr(providers, "_provider", FakeEngine())
+
+    async def fake_download(url):
+        return b"GLB-" + url.encode()
+
+    monkeypatch.setattr(m3d_service, "_download_bytes", fake_download)
+
+    # (1) New generation with a remote URL lands in /media/db/*.
+    created = await client.post(
+        "/api/admin/model3d/jobs?name=Remote GLB", headers=bearer(token), files=png_upload(),
+    )
+    gen = created.json()
+    for _ in range(30):
+        await asyncio.sleep(0.5)
+        gen = (
+            await client.get(f"/api/admin/model3d/jobs/{gen['id']}", headers=bearer(token))
+        ).json()
+        if gen["status"] in ("succeeded", "failed"):
+            break
+    assert gen["status"] == "succeeded", gen
+    assert gen["result_glb_url"].startswith("/media/db/")
+    served = await client.get(gen["result_glb_url"])
+    assert served.status_code == 200
+    assert served.content == b"GLB-https://engine.example/gen.glb"
+
+    # (2) Retexture: pretend a stale rig exists to verify it gets dropped.
+    r = await client.post(f"/api/admin/model3d/jobs/{gen['id']}/retexture",
+                          headers=bearer(token), json={"prompt": "furry plush style"})
+    assert r.status_code == 200, r.text
+    assert r.json()["params"]["retexture"]["status"] == "processing"
+
+    for _ in range(30):
+        await asyncio.sleep(0.5)
+        gen = (
+            await client.get(f"/api/admin/model3d/jobs/{gen['id']}", headers=bearer(token))
+        ).json()
+        if (gen["params"].get("retexture") or {}).get("status") in ("succeeded", "failed"):
+            break
+    assert gen["params"]["retexture"]["status"] == "succeeded", gen
+    assert gen["params"]["prompt"] == "furry plush style"
+    assert "variants" not in gen["params"] and "rig" not in gen["params"]
+    served = await client.get(gen["result_glb_url"])
+    assert served.content == b"GLB-https://engine.example/retex.glb"
+
+
 async def test_model3d_rejects_bad_uploads(client, demo):
     token = await login(client, "alpha", "admin-a")
 
