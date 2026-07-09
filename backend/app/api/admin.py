@@ -176,7 +176,14 @@ async def tenant_overview(
         )
     ).all()
 
-    completion_rate = (rewards_unlocked / participants) if participants else 0.0
+    # Completion rate = share of task attempts actually finished, NOT the
+    # reward-unlock rate (which reads as 0% whenever a threshold exceeds an
+    # event's task count — a player can finish every task and still unlock
+    # nothing). Denominator: for each event, the players who joined it times
+    # its task count (both DISTINCT above, so unaffected by the Task×Stamp
+    # join fan-out); numerator: stamps actually collected.
+    possible_completions = sum(r.participants * r.tasks for r in event_rows)
+    completion_rate = (total_stamps / possible_completions) if possible_completions else 0.0
     return {
         "kpis": {
             "participants": participants,

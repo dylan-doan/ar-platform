@@ -107,10 +107,15 @@ export default function Page() {
     if (!event || busy) return;
     setBusy('save'); setError('');
     try {
+      // Clamp the reward threshold to the task count — a threshold above it can
+      // never be reached (completing every task still unlocks nothing).
+      let threshold = Number(form.reward_threshold) || 1;
+      if (tasks.length > 0 && threshold > tasks.length) threshold = tasks.length;
       const updated = await adminApi(`/api/admin/events/${event.id}`, {
         method: 'PATCH',
-        body: { name: form.name, description: form.description, reward_name: form.reward_name, reward_threshold: Number(form.reward_threshold) || 1, config: { ...(event.config || {}), sections: form.sections, heroImage: form.heroImage || undefined } },
+        body: { name: form.name, description: form.description, reward_name: form.reward_name, reward_threshold: threshold, config: { ...(event.config || {}), sections: form.sections, heroImage: form.heroImage || undefined } },
       });
+      if (threshold !== Number(form.reward_threshold)) setForm((f) => ({ ...f, reward_threshold: threshold }));
       setEvent(updated); note('已儲存 ✓');
     } catch (e) { if (!guard(e)) setError(e.message); } finally { setBusy(''); }
   }
@@ -395,7 +400,14 @@ export default function Page() {
         <label style={{fontSize:'12px', fontWeight:'600', color:'var(--text-body)', display:'block', marginBottom:'6px'}}>獎勵名稱</label>
         <input value={form.reward_name} onChange={(e) => setForm({ ...form, reward_name: e.target.value })} style={{width:'100%', height:'40px', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'0 12px', fontSize:'13px', color:'var(--text-body)', marginBottom:'14px', outline:'none'}} />
         <label style={{fontSize:'12px', fontWeight:'600', color:'var(--text-body)', display:'block', marginBottom:'6px'}}>集章門檻（收集幾枚解鎖獎勵）</label>
-        <input type="number" min={1} value={form.reward_threshold} onChange={(e) => setForm({ ...form, reward_threshold: e.target.value })} style={{width:'100%', height:'40px', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'0 12px', fontSize:'13px', color:'var(--text-body)', marginBottom:'16px', outline:'none'}} />
+        <input type="number" min={1} max={Math.max(1, tasks.length)} value={form.reward_threshold} onChange={(e) => setForm({ ...form, reward_threshold: e.target.value })} style={{width:'100%', height:'40px', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'0 12px', fontSize:'13px', color:'var(--text-body)', marginBottom: (Number(form.reward_threshold) > tasks.length && tasks.length > 0) ? '8px' : '16px', outline:'none'}} />
+        {/* A threshold above the task count can never be reached — players finish
+            every task and still unlock nothing. Warn, and clamp on save. */}
+        {Number(form.reward_threshold) > tasks.length && tasks.length > 0 && (
+          <div style={{padding:'8px 11px', borderRadius:'8px', background:'var(--status-warning-bg, #FEF3C7)', color:'var(--status-warning-fg, #92400E)', fontSize:'11px', fontWeight:'600', lineHeight:1.5, marginBottom:'16px'}}>
+            門檻（{Number(form.reward_threshold)}）高於任務數（{tasks.length}）— 玩家完成所有任務也無法解鎖獎勵。儲存時將自動調整為 {tasks.length}。
+          </div>
+        )}
         <div style={{borderTop:'1px solid var(--border-subtle)', paddingTop:'12px', fontSize:'11px', fontWeight:'700', letterSpacing:'.08em', textTransform:'uppercase', color:'var(--text-subtle)', marginBottom:'10px'}}>內容區塊（依活動類型）</div>
         {(form.sections || []).map((sec, i) => {
           const meta = SECTION_TYPE_META[sec.type] || SECTION_TYPE_META.text;

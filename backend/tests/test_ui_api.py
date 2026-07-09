@@ -38,6 +38,9 @@ async def test_admin_overview_shape_and_counts(client, demo):
     assert body["kpis"]["participants"] == 1
     assert body["kpis"]["total_stamps"] == 1
     assert body["kpis"]["active_tasks"] == 3  # alpha's event has 3 tasks
+    # Completion rate = stamps / (participants × tasks) = 1 / (1 × 3), i.e. the
+    # share of task attempts finished — independent of the reward threshold.
+    assert body["kpis"]["completion_rate"] == round(1 / 3, 4)
     assert body["daily"], "today's completion must appear in the daily series"
     assert body["daily"][-1]["stamps"] == 1
     assert {"method": "qr", "completions": 1} in body["methods"]
