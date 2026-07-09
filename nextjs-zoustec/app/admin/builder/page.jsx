@@ -148,9 +148,15 @@ export default function Page() {
   function selectTask(t) {
     setSelectedTask(t);
     const glbUrl = t.ar_config?.glbUrl || '/models/mascot.glb';
-    const targetUrl = t.ar_config?.targetUrl || '/targets/demo.mind';
+    const savedTarget = t.ar_config?.targetUrl || '/targets/demo.mind';
+    // Job match first: with the mock engine every job serves the same GLB
+    // file, so testing the demo URL first would swallow AI jobs into "demo".
     const glbJob = models.find((m) => m.result_glb_url === glbUrl);
-    const tgtJob = models.find((m) => m.params?.targetUrl === targetUrl);
+    const glbKey = glbJob ? `job:${glbJob.id}` : glbUrl === '/models/mascot.glb' ? 'demo' : 'custom';
+    // Target is the same-image pair of the model — keep it locked to the
+    // selected model (older data may have a mismatched target; re-pair it so
+    // the read-only display and the saved value never disagree).
+    const targetUrl = glbJob ? (glbJob.params?.targetUrl || '') : savedTarget;
     setTaskForm({
       name: t.name,
       description: t.description || '',
@@ -159,36 +165,45 @@ export default function Page() {
       radius_m: t.radius_m || 100,
       glbUrl,
       targetUrl,
-      // Job match first: with the mock engine every job serves the same GLB
-      // file, so testing the demo URL first would swallow AI jobs into "demo".
-      glbKey: glbJob ? `job:${glbJob.id}` : glbUrl === '/models/mascot.glb' ? 'demo' : 'custom',
-      targetKey: targetUrl === '/targets/demo.mind' ? 'demo' : tgtJob ? `job:${tgtJob.id}` : 'custom',
+      glbKey,
+      targetKey: glbKey,
       scale: t.ar_config?.scale ?? 0.4,
     });
   }
 
+  // The GLB and its AR target are one pair: both come from the SAME 2D image
+  // in AR Studio (image → AI 3D model + compiled .mind target). The target is
+  // never chosen separately — it always follows the selected model, so a task
+  // can't mix model A's mesh with model B's printed marker.
   function onModelSelect(v) {
-    if (v === 'demo') return setTaskForm({ ...taskForm, glbKey: 'demo', glbUrl: '/models/mascot.glb' });
-    if (v === 'custom') return setTaskForm({ ...taskForm, glbKey: 'custom' });
+    if (v === 'demo') {
+      return setTaskForm({ ...taskForm, glbKey: 'demo', glbUrl: '/models/mascot.glb', targetKey: 'demo', targetUrl: '/targets/demo.mind' });
+    }
+    if (v === 'custom') {
+      // External model: no auto-paired target — the admin supplies both URLs.
+      return setTaskForm({ ...taskForm, glbKey: 'custom', targetKey: 'custom' });
+    }
     const m = models.find((x) => `job:${x.id}` === v);
     if (!m) return;
-    const next = { ...taskForm, glbKey: v, glbUrl: m.result_glb_url };
-    // AI models ship a target compiled from the same source image → auto-fill it.
-    if (m.params?.targetUrl) { next.targetKey = v; next.targetUrl = m.params.targetUrl; }
-    setTaskForm(next);
-  }
-
-  function onTargetSelect(v) {
-    if (v === 'demo') return setTaskForm({ ...taskForm, targetKey: 'demo', targetUrl: '/targets/demo.mind' });
-    if (v === 'custom') return setTaskForm({ ...taskForm, targetKey: 'custom' });
-    const m = models.find((x) => `job:${x.id}` === v);
-    if (m?.params?.targetUrl) setTaskForm({ ...taskForm, targetKey: v, targetUrl: m.params.targetUrl });
+    setTaskForm({
+      ...taskForm,
+      glbKey: v,
+      glbUrl: m.result_glb_url,
+      // Its own compiled target (empty until the .mind is compiled in AR Studio).
+      targetKey: v,
+      targetUrl: m.params?.targetUrl || '',
+    });
   }
 
   async function saveTask() {
     if (!selectedTask || busy) return;
     setBusy('savetask'); setError('');
     try {
+      // A model without its paired target can't be tracked by the AR camera —
+      // block the save and point the admin to compile it in AR Studio.
+      if (!taskForm.targetUrl.trim()) {
+        throw new Error('此模型尚未有 AR 目標圖 — 請先到 AR Studio 完成「編譯辨識目標」。');
+      }
       const body = {
         name: taskForm.name,
         description: taskForm.description,
@@ -228,6 +243,11 @@ export default function Page() {
   }
 
   const meta = TYPE_META[event?.event_type] || TYPE_META.city;
+  // The AI-3D job currently selected as the task's model (drives the paired,
+  // read-only target display below the model dropdown).
+  const selectedModel = taskForm?.glbKey?.startsWith('job:')
+    ? models.find((m) => `job:${m.id}` === taskForm.glbKey)
+    : null;
 
   return (
 <AdminShell active="builder">
@@ -363,17 +383,25 @@ export default function Page() {
         )}
         <div style={{fontSize:'10.5px', color:'var(--text-subtle)', marginBottom:'12px', lineHeight:1.5}}>想用自己的吉祥物？<Link href="/admin/ar-studio" style={{color:'var(--primary-600)', fontWeight:'700'}}>前往 AR Studio 上傳 2D 圖生成 3D →</Link></div>
 
+        {/* AR target — NOT independently editable: it's the same-image pair of
+            the model above, so it just follows the selection (read-only), except
+            for a custom external model where the admin supplies the .mind URL. */}
         <label style={{fontSize:'12px', fontWeight:'600', color:'var(--text-body)', display:'block', marginBottom:'6px'}}>AR 目標圖（相機對準的印刷圖）</label>
-        <select value={taskForm.targetKey} onChange={(e) => onTargetSelect(e.target.value)}
-          style={{width:'100%', height:'40px', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'0 9px', fontSize:'13px', color:'var(--text-body)', marginBottom:'6px', background:'#fff'}}>
-          <option value="demo">示範目標圖（demo）</option>
-          {models.filter((m) => m.params?.targetUrl).map((m) => <option key={m.id} value={`job:${m.id}`}>{m.name} 的原圖</option>)}
-          <option value="custom">自訂 URL…</option>
-        </select>
-        {taskForm.targetKey === 'custom' && (
-          <input value={taskForm.targetUrl} onChange={(e) => setTaskForm({ ...taskForm, targetUrl: e.target.value })} placeholder="/media/…/target.mind" style={{width:'100%', height:'38px', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'0 12px', fontSize:'12px', color:'var(--text-body)', fontFamily:'var(--font-mono)', marginBottom:'6px', outline:'none'}} />
+        {taskForm.glbKey === 'custom' ? (
+          <>
+            <input value={taskForm.targetUrl} onChange={(e) => setTaskForm({ ...taskForm, targetUrl: e.target.value })} placeholder="/media/…/target.mind" style={{width:'100%', height:'38px', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'0 12px', fontSize:'12px', color:'var(--text-body)', fontFamily:'var(--font-mono)', marginBottom:'6px', outline:'none'}} />
+            <div style={{fontSize:'10.5px', color:'var(--text-subtle)', marginBottom:'12px', lineHeight:1.5}}>自訂模型請一併提供對應的 .mind 目標圖 URL。</div>
+          </>
+        ) : selectedModel && !selectedModel.params?.targetUrl ? (
+          <div style={{padding:'8px 11px', borderRadius:'8px', background:'var(--status-warning-bg, #FEF3C7)', color:'var(--status-warning-fg, #92400E)', fontSize:'11px', fontWeight:'600', lineHeight:1.5, marginBottom:'12px'}}>
+            此模型尚未編譯目標圖 — 請到 <Link href="/admin/ar-studio" style={{color:'inherit', textDecoration:'underline'}}>AR Studio</Link> 完成「編譯辨識目標」後再指派，否則相機無法對準。
+          </div>
+        ) : (
+          <div style={{display:'flex', alignItems:'center', gap:'8px', padding:'9px 11px', borderRadius:'8px', background:'var(--surface-sunken)', border:'1px solid var(--border-subtle)', fontSize:'11.5px', color:'var(--text-muted)', fontWeight:'600', marginBottom:'12px', lineHeight:1.5}}>
+            <span style={{color:'var(--success-600)', display:'inline-flex', lineHeight:'0', fontSize:'14px'}}><Icon name="link" /></span>
+            已與上方模型配對：{taskForm.glbKey === 'demo' ? '示範目標圖' : `${selectedModel?.name || ''} 的原圖`}（即列印張貼於現場的 2D 圖）
+          </div>
         )}
-        <div style={{fontSize:'10.5px', color:'var(--text-subtle)', marginBottom:'12px', lineHeight:1.5}}>選 AI 模型時會自動帶入其目標圖 — 即上傳到 AR Studio 的那張 2D 圖（列印張貼於現場）。</div>
 
         <label style={{fontSize:'12px', fontWeight:'600', color:'var(--text-body)', display:'block', marginBottom:'6px'}}>模型縮放</label>
         <input type="number" step="0.1" min="0.1" value={taskForm.scale} onChange={(e) => setTaskForm({ ...taskForm, scale: e.target.value })} style={{width:'100%', height:'40px', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'0 12px', fontSize:'13px', color:'var(--text-body)', marginBottom:'16px', outline:'none'}} />
