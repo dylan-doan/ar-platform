@@ -150,6 +150,8 @@ docs đã cập nhật; SSH alias `github-work` giữ nguyên).
 | `180b5da` | **Multipage + theme**: `config.pages = [{slug,title,nav,data}]` — rail trái quản lý trang, route `/e/{tenant}/{event}/{page}`, nav tự sinh, middleware custom-domain nhận path 2 cấp; 5 theme đầu (CSS-var preset) |
 | `89412d0` | **Thành sản phẩm**: root panel = **活動設定** (標題/介紹/封面圖 upload/獎勵/門檻/佈景主題) — lưu ngược về event record, form cũ ở `/admin/builder` XÓA (màn đó giờ chỉ còn nhiệm vụ + QR); canvas hiện hero preview WYSIWYG; **theme v2** 7 cái (registry JSON kiểu WordPress — token: `--site-radius/--site-btn-radius/--site-heading-weight/--site-card-bg`, hero overlay, font serif); **smart blocks** 數據看板 + 任務停靠點 bind dữ liệu thật qua Puck `metadata={{event,tasks}}` |
 
+| `2e18bb8` | **Custom mức Elementor**: tab 樣式 trên MỌI block (căn lề, nội/ngoại距, nền màu tự chọn — color picker, màu chữ, bo góc, bóng, độ rộng, CSS class); block 橫幅 Banner tự do + root option 隱藏預設 Hero; 網站選單 chỉnh tay (link trang con/URL ngoài, trống = auto); 全站自訂 CSS kiểu WordPress Additional CSS (inject cả canvas lẫn public, escape `</`). Marker `__color`/`__image` trong site-blocks → editor walker thay widget |
+
 Điểm kiến trúc cần nhớ:
 - **`config.puckVersion=2`** = layout mới (stats/tasks là block, admin tự đặt);
   site chưa re-publish giữ layout v1 (stats/tasks cứng). Doc v1 mở trong
