@@ -152,7 +152,7 @@ là lý do dùng **LIFF** (LINE Front-end Framework — web app chạy bên tron
 | **Backend** | https://zoustec-backend.onrender.com |
 | **Database** | Neon (Singapore) — PostGIS + RLS, 3 tenants |
 | **LIFF** | ID `2010613964-3UzmddVV`, endpoint = frontend URL (đã chốt) |
-| **Repo** | https://github.com/ducdoanbnk/ar-platform (Blueprint `render.yaml`) |
+| **Repo** | https://github.com/dylan-doan/ar-platform (Blueprint `render.yaml`) |
 
 Đã nghiệm thu trên production: 4/4 tiêu chí PoC bằng LINE thật (login người chơi
 + login admin), 3 website khách white-label (`/e/{tenant}/{event}`), builder

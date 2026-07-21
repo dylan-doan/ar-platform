@@ -22,7 +22,7 @@
 | LIFF riêng BnK (white-label) | ID `2010638570-ZXXAqde5`, channel `2010638570`, Endpoint = `https://vinh-bnk.mooo.com/` — đã chạy thật trong LINE |
 | Console Zoustec | `/zoustec/console` — login email/password tại `/zoustec/login` (`admin@zoustec.tw` + env `PLATFORM_ADMIN_PASSWORD`; dev fallback `platform-boss`) |
 | LIFF permalink | https://liff.line.me/2010613964-3UzmddVV |
-| GitHub | git@github-work:ducdoanbnk/ar-platform.git (SSH alias `github-work`) |
+| GitHub | git@github-work:dylan-doan/ar-platform.git (SSH alias `github-work`) |
 | Deploy | Render Blueprint (`render.yaml`) — push main = auto deploy cả 2 service |
 | Hiệu năng đo được | API có DB ~0.2–0.45s (trước khi chuyển region: 1.5–2.7s) |
 | Tests backend | 70/70 (`backend && .venv/bin/python -m pytest tests/ -q`, cần Docker db-test port 5434 — Docker Desktop phải bật) |
