@@ -13,7 +13,9 @@ const QrScanner = dynamic(() => import('../../../components/ar/QrScanner'), { ss
 
 const AR_STATUS_TEXT = {
   initializing: '正在啟動 AR 引擎…',
-  'camera-started': '3D 吉祥物出現中…',
+  'camera-started': '將相機對準立牌上的 QR 碼',
+  'target-found': '3D 吉祥物出現中…',
+  'target-lost': 'QR 已離開畫面 — 請重新對準立牌',
   completed: 'AR 展示完成！',
 };
 
@@ -240,6 +242,13 @@ export default function Page() {
     <ARStage
       glbUrl={task.ar_config.glbUrl}
       scale={task.ar_config.scale ?? 0.4}
+      qrMatches={(text) => {
+        // The mascot only stays while THIS stop's QR is in frame: match the
+        // standee deep-link (task id) or the accepted secret token.
+        const p = parseQrText(text);
+        return (Boolean(p.taskId) && p.taskId === task.id)
+          || (Boolean(p.qr) && Boolean(qr) && p.qr === qr.trim());
+      }}
       onComplete={() => setArDone(true)}
       onStatus={setArStatus}
     />

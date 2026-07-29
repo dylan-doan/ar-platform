@@ -4,21 +4,27 @@
  * ARStage — WebAR surface for the experience flow.
  *
  * Engine: three.js over a raw getUserMedia camera feed — NO WebXR (unavailable
- * in the iOS LINE WebView) and no image tracking: the 3D model appears as soon
- * as the camera starts (the on-site QR scan is the trigger, per spec). This is
- * the swappable engine seam: when Zoustec ships their official engine, replace
- * the mount internals here; the page contract (props/onComplete) stays.
+ * in the iOS LINE WebView). The on-site QR doubles as the presence gate: jsQR
+ * keeps decoding the live frames and the model is only visible while the
+ * task's own QR is in view (walk away from the standee → the mascot vanishes).
+ * This is the swappable engine seam: when Zoustec ships their official engine,
+ * replace the mount internals here; the page contract (props/onComplete) stays.
  *
  * Props:
  *   glbUrl, scale  — from task.ar_config (targetUrl no longer needed)
- *   onComplete()   — model shown on camera ~1.5s (successful AR reveal)
- *   onStatus(state) — 'initializing'|'camera-started'|'completed'|'error'
+ *   qrMatches(text) — return true when a decoded QR belongs to this task;
+ *                     omit to skip the presence gate (model always visible)
+ *   onComplete()   — the right QR held in view ~1.5s (successful AR reveal)
+ *   onStatus(state) — 'initializing'|'camera-started'|'target-found'|'target-lost'|'completed'|'error'
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { getLiff, resolveLiffId } from '../../lib/liff-client';
 
 const DWELL_MS = 1500;
+const GRACE_MS = 2000;   // QR reads are flaky frame-to-frame — hide only after this long unseen
+const DECODE_MS = 300;   // jsQR cadence (same ballpark as the scan step)
+const DECODE_W = 640;    // decode on a downscaled frame — full-res is CPU noise
 
 function arCapable() {
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return false;
@@ -50,9 +56,13 @@ async function openExternal() {
   window.location.href = target;
 }
 
-export default function ARStage({ glbUrl, scale = 0.4, onComplete, onStatus }) {
+export default function ARStage({ glbUrl, scale = 0.4, qrMatches, onComplete, onStatus }) {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
+  // Callback identities change per render — keep them in refs so the camera
+  // and scene mount exactly once.
+  const qrMatchesRef = useRef(qrMatches);
+  qrMatchesRef.current = qrMatches;
   const [error, setError] = useState('');
   const [unsupported, setUnsupported] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
@@ -64,7 +74,7 @@ export default function ARStage({ glbUrl, scale = 0.4, onComplete, onStatus }) {
     let disposed = false;
     let renderer = null;
     let stream = null;
-    let dwellTimer = null;
+    let decodeTimer = null;
     let resizeObs = null;
     const emit = (s) => { if (!disposed) onStatus?.(s); };
 
@@ -134,13 +144,48 @@ export default function ARStage({ glbUrl, scale = 0.4, onComplete, onStatus }) {
         }
 
         emit('camera-started');
-        dwellTimer = setTimeout(() => {
-          emit('completed');
-          onComplete?.();
-        }, DWELL_MS);
+
+        // ── QR presence gate ─────────────────────────────────────────────
+        // The mascot only exists while the task's own QR is in the frame.
+        const gated = typeof qrMatchesRef.current === 'function';
+        let lastSeen = gated ? -Infinity : Infinity;
+        if (gated) {
+          const jsQR = (await import('jsqr')).default;
+          if (disposed) return;
+          const dc = document.createElement('canvas');
+          const dctx = dc.getContext('2d', { willReadFrequently: true });
+          decodeTimer = setInterval(() => {
+            if (disposed || !video.videoWidth) return;
+            const k = Math.min(1, DECODE_W / video.videoWidth);
+            dc.width = Math.round(video.videoWidth * k);
+            dc.height = Math.round(video.videoHeight * k);
+            dctx.drawImage(video, 0, 0, dc.width, dc.height);
+            const img = dctx.getImageData(0, 0, dc.width, dc.height);
+            const hit = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+            if (hit?.data && qrMatchesRef.current?.(hit.data)) lastSeen = performance.now();
+          }, DECODE_MS);
+        }
+
+        model.visible = !gated;
+        let found = !gated;
+        let completed = false;
+        let foundAt = performance.now();
 
         const clock = new THREE.Clock();
         renderer.setAnimationLoop(() => {
+          const now = performance.now();
+          const seen = now - lastSeen < GRACE_MS;
+          if (seen !== found) {
+            found = seen;
+            model.visible = seen;
+            emit(seen ? 'target-found' : 'target-lost');
+            if (seen) foundAt = now;
+          }
+          if (found && !completed && now - foundAt >= DWELL_MS) {
+            completed = true;
+            emit('completed');
+            onComplete?.();
+          }
           const dt = clock.getDelta();
           if (mixer) mixer.update(dt);       // animated GLB: play its clips
           else model.rotation.y += dt * 0.6; // static mesh: gentle idle spin
@@ -158,7 +203,7 @@ export default function ARStage({ glbUrl, scale = 0.4, onComplete, onStatus }) {
 
     return () => {
       disposed = true;
-      if (dwellTimer) clearTimeout(dwellTimer);
+      if (decodeTimer) clearInterval(decodeTimer);
       if (resizeObs) resizeObs.disconnect();
       if (renderer) {
         try { renderer.setAnimationLoop(null); } catch {}
