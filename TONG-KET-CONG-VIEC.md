@@ -164,6 +164,8 @@ docs đã cập nhật; SSH alias `github-work` giữ nguyên).
 
 | `46c7257` | **Quét QR là ra 3D (AR overlay)**: bỏ MindAR image tracking ở màn chơi — ARStage viết lại thành getUserMedia + three.js render GLB đè thẳng lên camera (model tự chuẩn hóa kích thước vừa khung, giữ animation/idle spin, hiện ~1.5s → nút chụp xanh); AR chỉ cần `glbUrl` (`targetUrl` bị bỏ qua — compile target trong AR Studio thành tùy chọn, `mind-ar` giữ cho `/diag` + AR Studio); docs TONG-QUAN + BAO-CAO cập nhật khớp luồng mới |
 
+| `b2078d4` | **Khóa 3D sau QR đúng** (fix lỗi 3D hiện trước khi quét): endpoint mới `POST /api/me/tasks/{id}/verify-qr` (dry-run `check_qr`, không đóng dấu — test 75/75); màn AR thêm `arUnlocked` — model CHỈ hiện sau khi mã được backend xác nhận đúng nhiệm vụ (mã sai/khác event ở lại bước quét + thông báo, chặn spam verify theo tick scanner); nhiệm vụ GPS có AR giờ cũng phải qua bước quét (standee QR = deep-link chứa `task` id — login forward `?task=` làm bằng chứng đã quét ngoài app, camera hỏng có nút 跳過 AR đi thẳng GPS) |
+
 Điểm kiến trúc cần nhớ:
 - **`config.puckVersion=2`** = layout mới (stats/tasks là block, admin tự đặt);
   site chưa re-publish giữ layout v1 (stats/tasks cứng). Doc v1 mở trong
