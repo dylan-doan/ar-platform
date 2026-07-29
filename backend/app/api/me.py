@@ -15,12 +15,14 @@ from app.models import Event, RewardClaim, Stamp, Task
 from app.schemas import (
     EventOut,
     ProgressOut,
+    QrVerifyRequest,
+    QrVerifyResponse,
     TaskCompleteRequest,
     TaskCompleteResponse,
     TaskLocation,
     TaskOut,
 )
-from app.services.tasks import complete_task
+from app.services.tasks import check_qr, complete_task
 
 router = APIRouter(prefix="/api/me", tags=["end-user"])
 
@@ -225,6 +227,29 @@ async def get_task(
         loc = TaskLocation(lat=row.lat, lng=row.lng)
 
     return _task_out(task, loc, completed)
+
+
+@router.post("/tasks/{task_id}/verify-qr", response_model=QrVerifyResponse)
+async def verify_qr(
+    task_id: uuid.UUID,
+    body: QrVerifyRequest,
+    ctx: AuthContext = Depends(member_context),
+) -> QrVerifyResponse:
+    """Dry-run QR check — no stamp is written. The AR screen only reveals the
+    3D model after the scanned code is confirmed to belong to this task."""
+    task = (
+        await ctx.session.execute(
+            select(Task).where(
+                Task.id == task_id,
+                Task.tenant_id == ctx.identity.tenant_id,
+                Task.is_active,
+            )
+        )
+    ).scalar_one_or_none()
+    if task is None:
+        raise ApiError(404, "task_not_found", "找不到任務。")
+    check_qr(task, body.qr_code)
+    return QrVerifyResponse()
 
 
 @router.post("/tasks/{task_id}/complete", response_model=TaskCompleteResponse)

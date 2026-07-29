@@ -63,7 +63,7 @@ async def _check_gps(
     return {"distance_m": round(row.distance_m, 1)}
 
 
-def _check_qr(task: Task, qr_code: str | None) -> None:
+def check_qr(task: Task, qr_code: str | None) -> None:
     if not task.qr_token:
         raise ApiError(409, "task_misconfigured", "此任務尚未設定 QR Code。")
     if not qr_code or qr_code != task.qr_token:
@@ -99,7 +99,7 @@ async def complete_task(
     # --- verify -------------------------------------------------------------
     evidence: dict[str, Any] = {}
     if task.verification_type in ("qr", "hybrid"):
-        _check_qr(task, qr_code)
+        check_qr(task, qr_code)
         evidence["qr"] = "ok"
     if task.verification_type in ("gps", "hybrid"):
         if lat is None or lng is None:

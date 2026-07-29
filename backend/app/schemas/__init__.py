@@ -309,6 +309,14 @@ class TaskCompleteRequest(BaseModel):
     lng: float | None = Field(default=None, ge=-180, le=180)
 
 
+class QrVerifyRequest(BaseModel):
+    qr_code: str = Field(min_length=1, max_length=64)
+
+
+class QrVerifyResponse(BaseModel):
+    ok: bool = True
+
+
 class TaskCompleteResponse(BaseModel):
     already_completed: bool
     stamps_collected: int

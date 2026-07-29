@@ -108,7 +108,11 @@ export default function Page() {
 
   function goToTask(tgt) {
     session.setTask(tgt.taskId);
-    router.push(`/experience/ar${tgt.qr ? `?qr=${encodeURIComponent(tgt.qr)}` : ''}`);
+    // Forward task too: its presence tells the AR screen the user arrived via
+    // a printed standee QR (scanned with the phone camera), not from the map.
+    const q = new URLSearchParams({ task: tgt.taskId });
+    if (tgt.qr) q.set('qr', tgt.qr);
+    router.push(`/experience/ar?${q}`);
   }
 
   async function handleStart() {

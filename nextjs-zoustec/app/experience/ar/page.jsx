@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
@@ -50,20 +50,44 @@ export default function Page() {
   const [error, setError] = useState('');
   const [arStatus, setArStatus] = useState('');
   const [arDone, setArDone] = useState(false);
+  // The 3D model is a reward for scanning THIS event's QR — never shown before
+  // a code has been validated (or the user arrived via a printed standee QR).
+  const [arUnlocked, setArUnlocked] = useState(false);
+  const verifyingRef = useRef(false);
+  const rejectedRef = useRef(new Set()); // raw codes already refused — stop re-verifying every scanner tick
 
   useEffect(() => {
     (async () => {
       if (!session.token || !session.taskId) return router.replace('/experience/map');
       try {
-        // QR deep-link: /experience/ar?qr=TOKEN (standee scanned with the
-        // phone camera before entering the app) → skip the in-app scan step.
+        // Deep-link: /experience/ar?task=ID&qr=TOKEN (standee scanned with the
+        // phone camera before entering the app) → that scan already happened,
+        // but the token still has to be right before the model unlocks.
         const params = new URLSearchParams(window.location.search);
         const urlQr = params.get('qr') || '';
-        if (urlQr) setQr(urlQr);
+        const viaPrintedQr = Boolean(params.get('task'));
         const t = await api(`/api/me/tasks/${session.taskId}`);
         setTask(t);
-        const needQr = t.verification_type === 'qr' || t.verification_type === 'hybrid';
-        setPhase(needQr && !urlQr ? 'scan' : 'ar');
+        const tNeedsQr = t.verification_type === 'qr' || t.verification_type === 'hybrid';
+        const tHasAr = Boolean(t.ar_config?.glbUrl);
+        if (tNeedsQr) {
+          if (urlQr) {
+            try {
+              await api(`/api/me/tasks/${t.id}/verify-qr`, { method: 'POST', body: { qr_code: urlQr } });
+              setQr(urlQr);
+              setArUnlocked(true);
+              setPhase('ar');
+            } catch {
+              setScanMsg('此 QR Code 不適用於這個任務 — 請掃描本任務立牌上的 QR');
+              setPhase('scan');
+            }
+          } else setPhase('scan');
+        } else if (tHasAr && !viaPrintedQr) {
+          setPhase('scan'); // AR-only reveal gate: the on-site QR is the trigger
+        } else {
+          if (tHasAr) setArUnlocked(true);
+          setPhase('ar');
+        }
       } catch (e) {
         if (e.status === 401) return router.replace('/experience/login');
         setError(e.message);
@@ -76,26 +100,58 @@ export default function Page() {
   const needsGps = task && (task.verification_type === 'gps' || task.verification_type === 'hybrid');
   const hasAr = Boolean(task?.ar_config?.glbUrl);
 
-  /** Step 1 done: a code arrived (scanned or typed) → move on to the AR step.
-   * The standee wins: scanning another stop's QR switches to that task. */
+  /** Step 1: a code arrived (scanned or typed). Validate it BEFORE the model
+   * shows — wrong/foreign codes stay on the scan step. The standee wins:
+   * scanning another stop's QR switches to that task. Returns true on accept. */
   async function acceptQr({ qr: code, taskId }) {
-    if (taskId && taskId !== session.taskId) {
-      try {
-        const t = await api(`/api/me/tasks/${taskId}`);
-        session.setTask(taskId);
-        setTask(t);
-      } catch { /* QR from another event → keep the current task */ }
+    if (verifyingRef.current) return false;
+    verifyingRef.current = true;
+    try {
+      let t = task;
+      if (taskId && taskId !== session.taskId) {
+        try {
+          t = await api(`/api/me/tasks/${taskId}`);
+          session.setTask(taskId);
+          setTask(t);
+        } catch {
+          setScanMsg('這個 QR 不屬於本活動 — 請掃描本活動立牌上的 QR');
+          return false;
+        }
+      }
+      const tNeedsQr = t && (t.verification_type === 'qr' || t.verification_type === 'hybrid');
+      if (tNeedsQr) {
+        if (!code) { setScanMsg('這個 QR 不含活動代碼 — 請掃描現場立牌上的 QR'); return false; }
+        try {
+          await api(`/api/me/tasks/${t.id}/verify-qr`, { method: 'POST', body: { qr_code: code } });
+        } catch (e) {
+          setScanMsg(e.code === 'qr_invalid' ? '此 QR Code 不適用於這個任務 — 請掃描本任務立牌上的 QR' : e.message);
+          return false;
+        }
+      } else if (!taskId) {
+        // GPS-only stop: only its printed standee QR (a task deep-link)
+        // proves the player scanned the right sign — bare text can't.
+        setScanMsg('這個 QR 不屬於本活動 — 請掃描本活動立牌上的 QR');
+        return false;
+      }
+      setQr(code);
+      setScanMsg('');
+      setError('');
+      setArUnlocked(true);
+      setPhase('ar');
+      return true;
+    } finally {
+      verifyingRef.current = false;
     }
-    setQr(code);
-    setScanMsg('');
-    setError('');
-    setPhase('ar');
   }
 
   function handleScan(text) {
+    if (rejectedRef.current.has(text)) return; // scanner re-reads the same frame ~4×/s
     const parsed = parseQrText(text);
-    if (!parsed.qr) return setScanMsg('這個 QR 不含活動代碼 — 請掃描現場立牌上的 QR');
-    acceptQr(parsed);
+    if (!parsed.qr && !parsed.taskId) {
+      rejectedRef.current.add(text);
+      return setScanMsg('這個 QR 不含活動代碼 — 請掃描現場立牌上的 QR');
+    }
+    acceptQr(parsed).then((ok) => { if (!ok) rejectedRef.current.add(text); });
   }
 
   async function complete() {
@@ -116,8 +172,8 @@ export default function Page() {
       router.push('/experience/rewards');
     } catch (e) {
       if (e.code === 'qr_invalid') {
-        // Bad code → back to the scan step instead of stalling on AR.
-        setQr(''); setPhase('scan'); setScanMsg('QR 代碼不正確 — 請重新掃描現場立牌');
+        // Bad code → back to the scan step (and re-lock the model).
+        setQr(''); setArUnlocked(false); setArDone(false); setPhase('scan'); setScanMsg('QR 代碼不正確 — 請重新掃描現場立牌');
       } else {
         setError(e.code === 'gps_out_of_range' ? '您還不在打卡範圍內，請再靠近一點' : e.message);
       }
@@ -153,6 +209,11 @@ export default function Page() {
     <div style={{textAlign:'center', color:'#fff', fontSize:'13.5px', fontWeight:'700', textShadow:'0 1px 6px rgba(0,0,0,.7)'}}>
       {camDead ? '無法開啟相機 — 請在下方輸入立牌上的代碼' : '第 1 步 · 將相機對準活動立牌上的 QR 碼'}
     </div>
+    {camDead && !needsQr && (
+      /* GPS-only stop with a dead camera: the QR only unlocks the AR layer,
+         so let the player skip straight to the GPS check (model stays locked). */
+      <button onClick={() => setPhase('ar')} style={{height:'44px', borderRadius:'12px', border:'1px solid rgba(255,255,255,.3)', background:'rgba(255,255,255,.12)', color:'#fff', fontSize:'13px', fontWeight:'700', cursor:'pointer', backdropFilter:'blur(6px)'}}>跳過 AR，直接進行打卡</button>
+    )}
     <div style={{display:'flex', gap:'8px'}}>
       <input
         value={manual}
@@ -173,8 +234,9 @@ export default function Page() {
   // ───────────────────────────────────────────── Step 2 · AR + capture/verify
   return (
 <div style={{flex:'1', display:'flex', flexDirection:'column', background:'#000', position:'relative'}}>
-  {/* Backdrop: real AR camera (MindAR) when the task ships ar_config; static visual otherwise */}
-  {phase === 'ar' && hasAr ? (
+  {/* Backdrop: live camera + 3D model, but ONLY after this event's QR was
+      scanned and validated (arUnlocked); static visual otherwise */}
+  {phase === 'ar' && hasAr && arUnlocked ? (
     <ARStage
       glbUrl={task.ar_config.glbUrl}
       scale={task.ar_config.scale ?? 0.4}
@@ -197,8 +259,8 @@ export default function Page() {
     </div>
   </div>
 
-  {/* Static scan frame + mascot (only when no real AR engine) */}
-  {!hasAr && (
+  {/* Static scan frame + mascot (no AR config, or model still locked) */}
+  {!(hasAr && arUnlocked) && (
     <div style={{position:'relative', flex:'1', display:'flex', alignItems:'center', justifyContent:'center'}}>
       <div style={{position:'absolute', width:'230px', height:'230px', borderRadius:'24px', border:'2px dashed rgba(255,255,255,.35)'}}></div>
       <div style={{position:'relative', display:'flex', flexDirection:'column', alignItems:'center'}}>
@@ -207,7 +269,7 @@ export default function Page() {
       </div>
     </div>
   )}
-  {hasAr && <div style={{flex:'1', pointerEvents:'none'}}></div>}
+  {hasAr && arUnlocked && <div style={{flex:'1', pointerEvents:'none'}}></div>}
 
   {/* AR status + verify controls */}
   <div style={{position:'relative', padding:'0 20px', marginBottom:'14px', display:'flex', flexDirection:'column', gap:'9px', zIndex:10}}>
@@ -220,7 +282,7 @@ export default function Page() {
     {needsQr && qr && (
       <div style={{alignSelf:'center', display:'inline-flex', alignItems:'center', gap:'8px', padding:'6px 12px', borderRadius:'9999px', background:'rgba(16,185,129,.22)', border:'1px solid rgba(16,185,129,.5)', color:'#6EE7B7', fontSize:'12px', fontWeight:'700', backdropFilter:'blur(6px)'}}>
         <span style={{fontSize:'13px', display:'inline-flex', lineHeight:'0'}}><Icon name="circle-check" /></span>QR 已確認
-        <button onClick={() => { setQr(''); setPhase('scan'); }} style={{background:'none', border:'none', color:'#A7F3D0', fontSize:'11.5px', fontWeight:'700', cursor:'pointer', padding:0, textDecoration:'underline'}}>重新掃描</button>
+        <button onClick={() => { setQr(''); setArUnlocked(false); setArDone(false); setPhase('scan'); }} style={{background:'none', border:'none', color:'#A7F3D0', fontSize:'11.5px', fontWeight:'700', cursor:'pointer', padding:0, textDecoration:'underline'}}>重新掃描</button>
       </div>
     )}
     {error && <div style={{padding:'10px 14px', borderRadius:'10px', background:'rgba(239,68,68,.3)', border:'1px solid rgba(239,68,68,.5)', color:'#FECACA', fontSize:'13px', fontWeight:'600', textAlign:'center', backdropFilter:'blur(6px)'}}>{error}</div>}

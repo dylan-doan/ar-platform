@@ -36,6 +36,33 @@ async def test_qr_correct_code_stamps(client, demo):
     assert body["reward_unlocked"] is False
 
 
+async def test_verify_qr_dry_run(client, demo):
+    """The AR reveal gate: wrong code 422s, right code passes, no stamp yet."""
+    token = await login(client, "alpha", "alice")
+    task = demo["task_qr"]
+
+    bad = await client.post(
+        f"/api/me/tasks/{task.id}/verify-qr",
+        headers=bearer(token),
+        json={"qr_code": "wrong"},
+    )
+    assert bad.status_code == 422
+    assert bad.json()["error"]["code"] == "qr_invalid"
+
+    ok = await client.post(
+        f"/api/me/tasks/{task.id}/verify-qr",
+        headers=bearer(token),
+        json={"qr_code": "secret-a"},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["ok"] is True
+
+    progress = await client.get(
+        f"/api/me/events/{task.event_id}/progress", headers=bearer(token)
+    )
+    assert progress.json()["stamps_collected"] == 0
+
+
 async def test_gps_out_of_range_rejected_with_distance(client, demo):
     token = await login(client, "alpha", "alice")
     resp = await client.post(
