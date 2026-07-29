@@ -21,8 +21,8 @@ khách hàng vào trung tâm thương mại**.
 > **LINE** (app quốc dân của Đài Loan), bấm vào link sự kiện → **tự động đăng
 > nhập, không cần cài app**. Màn hình hiện bản đồ 12 điểm di tích. Chị đến
 > Xích Khảm Lâu, **quét mã QR** trên bảng đứng → camera bật lên, **linh vật
-> rùa 3D xuất hiện bằng AR** ngay trên di tích thật → chị nhận được 1 con dấu
-> ảo. Đi đủ điểm, gom đủ 6 dấu → **mở khóa quà** (voucher, quà lưu niệm).
+> rùa 3D xuất hiện bằng AR** ngay trên khung cảnh thật → chị nhận được 1 con
+> dấu ảo. Đi đủ điểm, gom đủ 6 dấu → **mở khóa quà** (voucher, quà lưu niệm).
 > Trong lúc đó, nhân viên Sở Du lịch mở dashboard thấy **ngay lập tức**: bao
 > nhiêu người đang chơi, điểm nào đông nhất.
 
@@ -89,8 +89,9 @@ v1 quản lý gói/MRR thủ công qua platform admin (chưa có billing engine 
 | Công cụ nhiệm vụ (QR/GPS/hybrid) | Thiết kế trải nghiệm |
 | White-label, tích hợp LINE | |
 
-→ Vì Zoustec **chưa có** 2 engine kia, chúng ta đã xây **bản tạm** (MindAR cho
-WebAR, mock/Meshy cho AI-3D) đằng sau "seam" (`ARProvider`, `Model3DProvider`)
+→ Vì Zoustec **chưa có** 2 engine kia, chúng ta đã xây **bản tạm** (three.js
+overlay trên camera cho WebAR, mock/Meshy cho AI-3D) đằng sau "seam"
+(`ARProvider`, `Model3DProvider`)
 — khi Zoustec giao engine thật thì cắm vào, **không đập code**.
 
 ---
@@ -111,8 +112,10 @@ là lý do dùng **LIFF** (LINE Front-end Framework — web app chạy bên tron
 
 ### Các giới hạn kỹ thuật phải công khai (tránh tranh chấp — spec mục V)
 
-- **iOS LINE WebView không có WebXR** → AR trong LIFF là image-target/marker
-  (không world-tracking). Đã chọn MindAR (getUserMedia + WebGL) vì lý do này.
+- **iOS LINE WebView không có WebXR** → AR trong LIFF chạy trên
+  getUserMedia + WebGL, không có world-tracking. Luồng hiện tại: quét QR →
+  model 3D hiện thẳng trên nền camera (three.js overlay, không cần image
+  target).
 - **GPS trong nhà không tin cậy** → nhiệm vụ indoor dùng QR/hybrid; đặt
   checkpoint GPS ở cửa vào với bán kính rộng (75–100m).
 - **QR chính thống = URL chứa token** (quét bằng camera máy/LINE) — không dùng

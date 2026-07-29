@@ -3,15 +3,16 @@
 /**
  * ARStage — WebAR surface for the experience flow.
  *
- * Engine: MindAR (image tracking) + three.js on getUserMedia + WebGL only —
- * NO WebXR (unavailable in the iOS LINE WebView). This is the swappable
- * engine seam: when Zoustec ships their official engine, replace the mount
- * internals here; the page contract (props/onComplete) stays.
+ * Engine: three.js over a raw getUserMedia camera feed — NO WebXR (unavailable
+ * in the iOS LINE WebView) and no image tracking: the 3D model appears as soon
+ * as the camera starts (the on-site QR scan is the trigger, per spec). This is
+ * the swappable engine seam: when Zoustec ships their official engine, replace
+ * the mount internals here; the page contract (props/onComplete) stays.
  *
  * Props:
- *   glbUrl, targetUrl, scale  — from task.ar_config
- *   onComplete()              — target held in view ~1.5s (successful scan)
- *   onStatus(state)           — 'initializing'|'camera-started'|'target-found'|'target-lost'|'completed'|'error'
+ *   glbUrl, scale  — from task.ar_config (targetUrl no longer needed)
+ *   onComplete()   — model shown on camera ~1.5s (successful AR reveal)
+ *   onStatus(state) — 'initializing'|'camera-started'|'completed'|'error'
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -49,72 +50,94 @@ async function openExternal() {
   window.location.href = target;
 }
 
-export default function ARStage({ glbUrl, targetUrl, scale = 0.4, onComplete, onStatus }) {
+export default function ARStage({ glbUrl, scale = 0.4, onComplete, onStatus }) {
   const containerRef = useRef(null);
+  const videoRef = useRef(null);
   const [error, setError] = useState('');
   const [unsupported, setUnsupported] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
-    if (!glbUrl || !targetUrl) return;
+    if (!glbUrl) return;
     if (!arCapable()) { setUnsupported(true); onStatus?.('error'); return; }
 
     let disposed = false;
-    let mindarThree = null;
+    let renderer = null;
+    let stream = null;
     let dwellTimer = null;
-    let completed = false;
+    let resizeObs = null;
     const emit = (s) => { if (!disposed) onStatus?.(s); };
 
     (async () => {
       emit('initializing');
       try {
-        const mindMod = await import('mind-ar/dist/mindar-image-three.prod.js');
         const THREE = await import('three');
         const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
         if (disposed) return;
 
-        mindarThree = new mindMod.MindARThree({
-          container: containerRef.current,
-          imageTargetSrc: targetUrl,
-          uiScanning: true,
-          uiLoading: 'no',
+        const container = containerRef.current;
+        const video = videoRef.current;
+
+        // Camera permission prompt happens here.
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+          audio: false,
         });
-        const { renderer, scene, camera } = mindarThree;
+        if (disposed) return;
+        video.srcObject = stream;
+        await video.play();
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+        camera.position.set(0, 0.2, 2.4);
+        camera.lookAt(0, 0, 0);
+
+        renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        Object.assign(renderer.domElement.style, { position: 'absolute', inset: '0' });
+        container.appendChild(renderer.domElement);
+
+        const fit = () => {
+          const w = container.clientWidth || 1;
+          const h = container.clientHeight || 1;
+          renderer.setSize(w, h);
+          camera.aspect = w / h;
+          camera.updateProjectionMatrix();
+        };
+        fit();
+        resizeObs = new ResizeObserver(fit);
+        resizeObs.observe(container);
 
         scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
         const dir = new THREE.DirectionalLight(0xffffff, 0.8);
         dir.position.set(0.5, 1, 1);
         scene.add(dir);
 
-        const anchor = mindarThree.addAnchor(0);
         const gltf = await new GLTFLoader().loadAsync(glbUrl);
         if (disposed) return;
         const model = gltf.scene;
-        model.scale.set(scale, scale, scale);
-        anchor.group.add(model);
+        // Normalize so any GLB lands mid-frame at a sensible size, then apply
+        // the task's scale on top (0.4 = legacy default → ~1 world unit tall).
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z) || 1;
+        const norm = (scale / 0.4) / maxDim;
+        model.scale.setScalar(norm);
+        const center = box.getCenter(new THREE.Vector3()).multiplyScalar(norm);
+        model.position.sub(center);
+        scene.add(model);
+
         let mixer = null;
         if (gltf.animations?.length) {
           mixer = new THREE.AnimationMixer(model);
           gltf.animations.forEach((clip) => mixer.clipAction(clip).play());
         }
 
-        anchor.onTargetFound = () => {
-          emit('target-found');
-          if (completed) return;
-          dwellTimer = setTimeout(() => {
-            completed = true;
-            emit('completed');
-            onComplete?.();
-          }, DWELL_MS);
-        };
-        anchor.onTargetLost = () => {
-          emit('target-lost');
-          if (dwellTimer) { clearTimeout(dwellTimer); dwellTimer = null; }
-        };
-
-        await mindarThree.start(); // camera permission prompt happens here
-        if (disposed) { await mindarThree.stop(); return; }
         emit('camera-started');
+        dwellTimer = setTimeout(() => {
+          emit('completed');
+          onComplete?.();
+        }, DWELL_MS);
 
         const clock = new THREE.Clock();
         renderer.setAnimationLoop(() => {
@@ -136,13 +159,16 @@ export default function ARStage({ glbUrl, targetUrl, scale = 0.4, onComplete, on
     return () => {
       disposed = true;
       if (dwellTimer) clearTimeout(dwellTimer);
-      if (mindarThree) {
-        try { mindarThree.renderer?.setAnimationLoop(null); } catch {}
-        try { mindarThree.stop(); } catch {}
-        try { mindarThree.renderer?.dispose?.(); } catch {}
+      if (resizeObs) resizeObs.disconnect();
+      if (renderer) {
+        try { renderer.setAnimationLoop(null); } catch {}
+        try { renderer.domElement?.remove(); } catch {}
+        try { renderer.dispose(); } catch {}
       }
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      if (videoRef.current) videoRef.current.srcObject = null;
     };
-  }, [glbUrl, targetUrl, scale, retryKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [glbUrl, scale, retryKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (unsupported || error) {
     return (
@@ -158,6 +184,9 @@ export default function ARStage({ glbUrl, targetUrl, scale = 0.4, onComplete, on
     );
   }
 
-  // MindAR injects <video> + canvas into this container.
-  return <div ref={containerRef} style={{position:'absolute', inset:0, overflow:'hidden'}} />;
+  return (
+    <div ref={containerRef} style={{position:'absolute', inset:0, overflow:'hidden'}}>
+      <video ref={videoRef} playsInline muted style={{position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover'}} />
+    </div>
+  );
 }

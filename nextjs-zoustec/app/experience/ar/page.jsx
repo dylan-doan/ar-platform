@@ -13,10 +13,8 @@ const QrScanner = dynamic(() => import('../../../components/ar/QrScanner'), { ss
 
 const AR_STATUS_TEXT = {
   initializing: '正在啟動 AR 引擎…',
-  'camera-started': '將相機對準現場圖像目標',
-  'target-found': '目標鎖定中 — 保持穩定…',
-  'target-lost': '目標丟失 — 請重新對準',
-  completed: 'AR 掃描完成！',
+  'camera-started': '3D 吉祥物出現中…',
+  completed: 'AR 展示完成！',
 };
 
 /** Printed standees encode the LIFF permalink (?tenant&event&task&qr, maybe
@@ -76,7 +74,7 @@ export default function Page() {
 
   const needsQr = task && (task.verification_type === 'qr' || task.verification_type === 'hybrid');
   const needsGps = task && (task.verification_type === 'gps' || task.verification_type === 'hybrid');
-  const hasAr = Boolean(task?.ar_config?.glbUrl && task?.ar_config?.targetUrl);
+  const hasAr = Boolean(task?.ar_config?.glbUrl);
 
   /** Step 1 done: a code arrived (scanned or typed) → move on to the AR step.
    * The standee wins: scanning another stop's QR switches to that task. */
@@ -179,7 +177,6 @@ export default function Page() {
   {phase === 'ar' && hasAr ? (
     <ARStage
       glbUrl={task.ar_config.glbUrl}
-      targetUrl={task.ar_config.targetUrl}
       scale={task.ar_config.scale ?? 0.4}
       onComplete={() => setArDone(true)}
       onStatus={setArStatus}

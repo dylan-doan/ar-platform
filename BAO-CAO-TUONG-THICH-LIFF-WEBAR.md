@@ -46,6 +46,10 @@ and behavior of the LIFF browser will also be in accordance with these schemes".
 - Luồng AR 2 bước (quét QR bằng `getUserMedia`+jsqr → MindAR image tracking)
   **đã nghiệm thu trên LINE iOS thật tại production** (sessions 2026-07-07/08),
   gồm cả bản white-label BnK chạy qua LIFF channel riêng.
+  *Cập nhật 2026-07-29*: bước 2 đổi thành **model 3D hiện thẳng trên camera**
+  (three.js overlay, không còn cần nhắm vào image target) — nền tảng vẫn là
+  getUserMedia + WebGL nên mọi kết luận tương thích ở báo cáo này giữ nguyên,
+  thậm chí nhẹ hơn vì bỏ khâu tracking.
 - Dự án chủ động **không dùng `liff.scanCodeV2`** (không ổn định đa nền tảng,
   từng bị LINE revert bản cập nhật 1/2024 vì giảm độ chính xác đọc mã) — QR
   chính thống là URL-token quét bằng camera thường, QR in-app tự xử lý bằng
