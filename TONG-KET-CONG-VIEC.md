@@ -162,6 +162,8 @@ docs đã cập nhật; SSH alias `github-work` giữ nguyên).
 
 | `22644e2` | **Slug sửa được + 1 key/khách**: wizard slug sạch bỏ dấu (đuôi chỉ khi trùng), ô 網址代稱 trong 活動設定 (PATCH slug, 409 nếu trùng — QR không ảnh hưởng vì dùng event ID); export KHÔNG mint key (env trống, snapshot qua admin API không kèm qr_token), console 產生／輪替金鑰 = revoke hết key toàn tenant cũ → đúng 1 key sống |
 
+| `46c7257` | **Quét QR là ra 3D (AR overlay)**: bỏ MindAR image tracking ở màn chơi — ARStage viết lại thành getUserMedia + three.js render GLB đè thẳng lên camera (model tự chuẩn hóa kích thước vừa khung, giữ animation/idle spin, hiện ~1.5s → nút chụp xanh); AR chỉ cần `glbUrl` (`targetUrl` bị bỏ qua — compile target trong AR Studio thành tùy chọn, `mind-ar` giữ cho `/diag` + AR Studio); docs TONG-QUAN + BAO-CAO cập nhật khớp luồng mới |
+
 Điểm kiến trúc cần nhớ:
 - **`config.puckVersion=2`** = layout mới (stats/tasks là block, admin tự đặt);
   site chưa re-publish giữ layout v1 (stats/tasks cứng). Doc v1 mở trong
