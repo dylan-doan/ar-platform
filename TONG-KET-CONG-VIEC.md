@@ -166,6 +166,8 @@ docs đã cập nhật; SSH alias `github-work` giữ nguyên).
 
 | `b2078d4` | **Khóa 3D sau QR đúng** (fix lỗi 3D hiện trước khi quét): endpoint mới `POST /api/me/tasks/{id}/verify-qr` (dry-run `check_qr`, không đóng dấu — test 75/75); màn AR thêm `arUnlocked` — model CHỈ hiện sau khi mã được backend xác nhận đúng nhiệm vụ (mã sai/khác event ở lại bước quét + thông báo, chặn spam verify theo tick scanner); nhiệm vụ GPS có AR giờ cũng phải qua bước quét (standee QR = deep-link chứa `task` id — login forward `?task=` làm bằng chứng đã quét ngoài app, camera hỏng có nút 跳過 AR đi thẳng GPS) |
 
+| `9f62533` | **QR presence gate**: trong màn AR, jsQR decode khung hình liên tục (300ms, frame thu 640px) — model 3D chỉ hiện khi camera ĐANG thấy đúng QR của trạm (khớp `task` id trong deep-link hoặc token đã xác nhận), rời QR ~2s là ẩn (chống đi nơi khác vẫn xem được 3D); trạng thái 對準/離開 quay lại UI, dwell 1.5s nhìn liên tục mới tính hoàn thành AR |
+
 Điểm kiến trúc cần nhớ:
 - **`config.puckVersion=2`** = layout mới (stats/tasks là block, admin tự đặt);
   site chưa re-publish giữ layout v1 (stats/tasks cứng). Doc v1 mở trong
