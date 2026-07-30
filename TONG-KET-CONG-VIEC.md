@@ -168,6 +168,8 @@ docs đã cập nhật; SSH alias `github-work` giữ nguyên).
 
 | `9f62533` | **QR presence gate**: trong màn AR, jsQR decode khung hình liên tục (300ms, frame thu 640px) — model 3D chỉ hiện khi camera ĐANG thấy đúng QR của trạm (khớp `task` id trong deep-link hoặc token đã xác nhận), rời QR ~2s là ẩn (chống đi nơi khác vẫn xem được 3D); trạng thái 對準/離開 quay lại UI, dwell 1.5s nhìn liên tục mới tính hoàn thành AR |
 
+| `60362ac` | **Bỏ "standee thắng"** (yêu cầu khách): đang ở trạm nào chỉ QR đúng trạm đó được nhận — quét standee trạm khác KHÔNG auto-chuyển nhiệm vụ nữa mà báo 「這個 QR 屬於其他站點 — 請掃描「{tên trạm}」立牌上的 QR」, 3D giữ khóa; muốn chơi trạm khác phải chọn từ bản đồ hoặc quét QR in bằng camera LINE (deep-link vào thẳng trạm đó) |
+
 Điểm kiến trúc cần nhớ:
 - **`config.puckVersion=2`** = layout mới (stats/tasks là block, admin tự đặt);
   site chưa re-publish giữ layout v1 (stats/tasks cứng). Doc v1 mở trong
