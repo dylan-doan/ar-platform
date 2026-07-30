@@ -16,6 +16,7 @@ from starlette.responses import Response, StreamingResponse
 from app.api.deps import AuthContext, tenant_admin_context
 from app.core.config import get_settings
 from app.api.headless import hash_export_key
+from app.core.crypto import decrypt_secret, encrypt_secret
 from app.core.errors import ApiError
 from app.models import Event, ExportKey, MediaAsset, Member, RewardClaim, Stamp, Task, Tenant
 from app.schemas import (
@@ -625,6 +626,63 @@ async def event_stats(
 
 
 # ------------------------------------------------------------------ headless template export (spec §3)
+
+@router.post("/tenant-api-key", response_model=ExportKeyCreated)
+async def get_or_create_tenant_api_key(
+    ctx: AuthContext = Depends(tenant_admin_context),
+) -> ExportKeyCreated:
+    """This tenant's ONE API key, for baking into a project export.
+
+    Returns the existing active key (decrypted) so repeated exports keep working
+    with the same key the customer already deployed; mints one only if the tenant
+    has none, or if the stored copy predates encryption and cannot be recovered
+    (in which case the previous key is revoked, exactly like a console rotation).
+
+    Scoped to the caller's own tenant — a tenant admin can only ever reach their
+    own key.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    existing = (
+        (
+            await ctx.session.execute(
+                select(ExportKey)
+                .where(
+                    ExportKey.tenant_id == ctx.identity.tenant_id,
+                    ExportKey.event_id.is_(None),
+                    ExportKey.revoked_at.is_(None),
+                )
+                .order_by(ExportKey.created_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for key in existing:
+        recovered = decrypt_secret(key.key_cipher or "")
+        if recovered is not None:
+            out = ExportKeyOut.model_validate(key)
+            return ExportKeyCreated(**out.model_dump(), key=recovered)
+
+    # None recoverable — rotate so the export ships a key that actually works.
+    for key in existing:
+        key.revoked_at = now
+    plaintext = f"zsk_{secrets.token_urlsafe(32)}"
+    key = ExportKey(
+        tenant_id=ctx.identity.tenant_id,
+        event_id=None,
+        key_prefix=plaintext[:12],
+        key_hash=hash_export_key(plaintext),
+        key_cipher=encrypt_secret(plaintext),
+    )
+    ctx.session.add(key)
+    await ctx.session.flush()
+    await _audit_admin(
+        ctx, "tenant_api_key.created", "export_key", key.id, {"prefix": key.key_prefix}
+    )
+    await ctx.session.commit()
+    out = ExportKeyOut.model_validate(key)
+    return ExportKeyCreated(**out.model_dump(), key=plaintext)
+
 
 @router.get("/events/{event_id}/export-keys", response_model=list[ExportKeyOut])
 async def list_export_keys(

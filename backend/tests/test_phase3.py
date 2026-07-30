@@ -396,6 +396,46 @@ async def test_platform_service_key_reads_any_tenant(client, demo, monkeypatch):
         get_settings.cache_clear()
 
 
+async def test_tenant_api_key_is_stable_and_reads_live_site(client, demo):
+    """The key baked into a project export must be reusable and actually work:
+    repeated exports return the SAME key, and it reads live tenant data."""
+    token = await login(client, "alpha", "admin-a")
+
+    first = await client.post("/api/admin/tenant-api-key", headers=bearer(token))
+    assert first.status_code == 200, first.text
+    key = first.json()["key"]
+    assert key.startswith("zsk_")
+
+    # Stable across exports — a re-export must not break the deployed site.
+    again = await client.post("/api/admin/tenant-api-key", headers=bearer(token))
+    assert again.json()["key"] == key
+    assert again.json()["id"] == first.json()["id"]
+
+    # Reads live data, and picks up a task added AFTER the key was issued.
+    before = await client.get(
+        "/api/headless/site/alpha/walk", headers={"X-Export-Key": key}
+    )
+    assert before.status_code == 200
+    assert len(before.json()["tasks"]) == 3
+
+    added = await client.post(
+        f"/api/admin/events/{demo['event_a'].id}/tasks",
+        headers=bearer(token),
+        json={"name": "Fourth Spot", "verification_type": "qr"},
+    )
+    assert added.status_code in (200, 201), added.text
+    after = await client.get(
+        "/api/headless/site/alpha/walk", headers={"X-Export-Key": key}
+    )
+    assert len(after.json()["tasks"]) == 4
+    assert "Fourth Spot" in [t["name"] for t in after.json()["tasks"]]
+
+    # Tenant-scoped: alpha's key cannot read beta.
+    assert (
+        await client.get("/api/headless/site/beta", headers={"X-Export-Key": key})
+    ).status_code == 403
+
+
 async def test_headless_key_is_event_scoped_and_revocable(client, demo):
     token = await login(client, "alpha", "admin-a")
     event_id = str(demo["event_a"].id)

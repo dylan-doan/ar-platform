@@ -7,10 +7,11 @@
  * Runs on the frontend service because only it has the template sources;
  * auth is the caller's tenant-admin token, forwarded to the backend.
  *
- * NO key is minted here — the customer holds exactly ONE tenant-wide key,
- * issued/rotated from the Zoustec console at onboarding. The zip ships with
- * an empty ZOUSTEC_EXPORT_KEY: the site runs immediately from the bundled
- * snapshot, and pasting the tenant key enables live sync.
+ * The zip ships with the tenant's OWN API key already filled in, so the
+ * downloaded site reads live data from the platform on first run — the customer
+ * does not have to paste anything. It is the same single tenant key the console
+ * issues/rotates (fetched, not minted here); data/site.json is only an offline
+ * fallback for when the platform is unreachable.
  */
 
 import fs from 'node:fs/promises';
@@ -35,6 +36,12 @@ async function backendGet(pathName, auth) {
   return res.json();
 }
 
+async function backendPost(pathName, auth) {
+  const res = await fetch(`${BACKEND}${pathName}`, { method: 'POST', headers: { authorization: auth } });
+  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status, body: await res.json().catch(() => ({})) });
+  return res.json();
+}
+
 export async function POST(req) {
   const auth = req.headers.get('authorization') || '';
   const { eventId } = await req.json().catch(() => ({}));
@@ -43,7 +50,7 @@ export async function POST(req) {
   }
 
   // Snapshot via the caller's own admin auth (RLS-scoped to their tenant).
-  let event, tasks, branding, others;
+  let event, tasks, branding, others, apiKey;
   try {
     const events = await backendGet('/api/admin/events', auth);
     event = events.find((e) => e.id === eventId);
@@ -51,6 +58,9 @@ export async function POST(req) {
     tasks = await backendGet(`/api/admin/events/${eventId}/tasks`, auth);
     branding = await backendGet('/api/admin/branding', auth);
     others = events.filter((e) => e.id !== eventId && e.is_active !== false);
+    // The tenant's existing key (minted only if they have none) — baked in below
+    // so the exported site reads live data without any manual setup.
+    apiKey = (await backendPost('/api/admin/tenant-api-key', auth)).key;
   } catch (e) {
     return NextResponse.json(e.body || { error: { message: e.message } }, { status: e.status || 502 });
   }
@@ -120,9 +130,11 @@ export async function POST(req) {
   zip.file('.env.local', [
     `ZOUSTEC_API_BASE=${apiBase}`,
     `ZOUSTEC_TENANT_SLUG=${site.tenant_slug}`,
-    '# 貼上 Zoustec 發給貴公司的 API 金鑰（每個客戶一組，於後台租戶頁可再次查看）',
-    '# 以啟用內容自動同步；留空時網站以 data/site.json 快照運作。',
-    'ZOUSTEC_EXPORT_KEY=',
+    '# 貴公司專屬 API 金鑰（每個客戶一組，於 Zoustec 後台可再次查看或重新產生）。',
+    '# 內容即由平台即時讀取；此檔請勿公開。',
+    `ZOUSTEC_EXPORT_KEY=${apiKey || ''}`,
+    '# 內容快取秒數。0（預設）= 每次瀏覽都讀取平台，後台修改立即生效。',
+    'ZOUSTEC_REVALIDATE=0',
     `ZOUSTEC_LIFF_ID=${liffId}`,
     '',
   ].join('\n'));
