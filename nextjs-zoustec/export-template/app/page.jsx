@@ -1,14 +1,22 @@
-import { EventHome } from '../components/Site';
+import EventSite from '../components/event/EventSite';
+import TenantLanding from '../components/event/TenantLanding';
 import { getSite } from '../lib/site-data';
 
 export const dynamic = 'force-dynamic';
 
 export async function generateMetadata() {
   const site = await getSite();
+  if (site.mode === 'landing') {
+    return { title: site.branding.landing_title || site.branding.tenant_name };
+  }
   return { title: `${site.event.name} · ${site.branding.tenant_name}` };
 }
 
 export default async function Page() {
   const site = await getSite();
-  return <EventHome site={site} />;
+  // Several active events and no pinned homepage → branded overview, the same
+  // rule the platform applies (brand_config.home_mode). linkBase '' keeps the
+  // white-label URLs (/{event-slug}) that this project serves.
+  if (site.mode === 'landing') return <TenantLanding site={site} linkBase="" />;
+  return <EventSite site={site} linkBase="" />;
 }

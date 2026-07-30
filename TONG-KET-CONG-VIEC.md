@@ -186,8 +186,51 @@ docs đã cập nhật; SSH alias `github-work` giữ nguyên).
   `ANTHROPIC_API_KEY` backend); bảng `site_pages` riêng khi lên SaaS; block
   Embed có sanitize (rủi ro XSS — để sau).
 
+## 3e. Session 2026-07-30 — hợp nhất site khách: 1 khung, 1 API, 1 KEY
+
+**Vấn đề phát hiện**: `vinh-bnk.mooo.com` không thấy API call nào trong
+DevTools vì trang render SSR trong app platform, gọi `/api/public/site/...`
+**server-to-server** (không key). Còn bundle download gọi
+`/api/headless/events/{id}` **có key**. Hai code path, hai payload shape, hai
+cây component (`EventSite.jsx` 219 dòng vs `export-template/Site.jsx` 172 dòng
+— bản export âm thầm mất stats band, task stops, v1/v2, other_events,
+`brandPalette`, QR modal desktop). Đã có **2 cơ chế export song song**:
+`export_bundle.py` (microsite vanilla JS, lạc hậu) và `export-nextjs/route.js`.
+
+**Đã hợp nhất theo yêu cầu**: cùng khung Next.js, cùng API có xác thực key,
+1 key/khách tạo từ console lúc tạo tài khoản.
+
+| Thay đổi | Chi tiết |
+|---|---|
+| `app/services/site_payload.py` (mới) | **MỘT** builder payload site. Cả `/api/public/site` (giữ làm alias deprecated cho bundle cũ) và `/api/headless/site` đều gọi nó → payload không thể lệch. Test khẳng định `keyed.json() == legacy.json()` |
+| `GET /api/headless/site/{tenant}/{event?}` (mới) | Đường dữ liệu **duy nhất** cho site khách. Resolve theo tenant-slug + landing-mode (trước chỉ theo event_id). Key tenant-wide đọc mọi event của mình; key event-scoped ghim 1 event; slug trong URL phải khớp tenant của key (403 nếu không) |
+| `PLATFORM_SERVICE_KEY` (mới) | Credential first-party để frontend platform gọi chính endpoint keyed đó → site khách **do mình host** đi đúng code path như site khách **tự host**. So sánh constant-time. `render.yaml` dùng `fromService` để 2 service chung 1 giá trị |
+| `app/core/crypto.py` + migration `0010` | AES-256-GCM (`v1.<nonce>.<ct>`), cột `export_keys.key_cipher`. Key **xem lại được** ở chi tiết tenant — `key_hash` vẫn là đường xác thực. `SECRET_ENCRYPTION_KEY` **không được rotate** (mọi key thành không đọc nổi) |
+| `create_tenant` mint key | Tạo tenant = có key luôn, cùng transaction (`TenantCreated.api_key`). `GET /tenants/{id}/api-key/reveal` decrypt cho console; 409 `key_not_recoverable` với row cũ → mời rotate |
+| Gộp component | Xóa `export-template/components/Site.jsx`. Export copy **chính** `EventSite/EventSubPage/TenantLanding/EventSections/JoinCta/Icon/brand.js/site-blocks.jsx`. Thêm `siteJoinHref()`/`siteLiffId()` đọc cả `NEXT_PUBLIC_LIFF_ID` và `ZOUSTEC_LIFF_ID` → 1 file chạy 2 host |
+| Xóa `export_bundle.py` | Cùng nút 匯出範本 giờ trỏ `/api/export-nextjs`. Hết 2 implementation drift |
+| `site-data.js` | Gọi endpoint hợp nhất, thêm `ZOUSTEC_TENANT_SLUG` + `ZOUSTEC_REVALIDATE`; **404 không fallback snapshot** (trước đó slug lạ vẫn render trang chủ) |
+
+**Đã kiểm chứng thật**: 78/78 test backend (từ 70 — thêm 8: payload khớp,
+tenant/event scope, service key, near-miss key). Build platform OK. Dựng bundle
+export offline → `npm install && npm run build && npm start`: home render
+branding + `城市探索`, sub-page render Puck block, slug lạ → 404. Bundle
+205 kB First Load JS **trùng** `/e/[tenant]` của platform → đúng 1 cây component.
+
+**Còn lại**: bundle `bnk-tham-quan-vinh-5os8-site/` trong repo là bản export
+CŨ (`ZOUSTEC_EVENT_ID`, `components/Site.jsx`) — export lại để dùng luồng mới.
+Prod cần set `SECRET_ENCRYPTION_KEY` + `PLATFORM_SERVICE_KEY`; tenant tạo
+trước session này chưa có key → bấm 重新產生金鑰.
+
 ## 4. Kiến trúc — điểm không được quên
 
+- **Site khách = 1 khung + 1 API + 1 key**: `EventSite.jsx` và bạn bè là
+  **file dùng chung** — export copy nguyên bản. Đừng import module chỉ có ở
+  platform vào chúng (phải tồn tại cả trong `export-template/`). Mọi dữ liệu
+  site đi qua `/api/headless/site/...`, build payload ở
+  `app/services/site_payload.py`. Sửa shape thì sửa 1 chỗ đó.
+- **`SECRET_ENCRYPTION_KEY` là vĩnh viễn**: rotate = toàn bộ API key khách
+  không decrypt được nữa (phải phát lại từng khách).
 - **RLS pinned connection**: `_guc_session()` trong `backend/app/db/session.py`
   ghim 1 connection suốt phiên (pool hopping sau commit làm mất GUC → RLS ẩn
   sạch dữ liệu). Đừng thay bằng session pool thường.

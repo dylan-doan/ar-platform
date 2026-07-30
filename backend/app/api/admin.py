@@ -35,7 +35,6 @@ from app.schemas import (
     TaskUpdate,
 )
 from app.services.audit import record_audit
-from app.services.export_bundle import build_bundle_zip
 
 router = APIRouter(prefix="/api/admin", tags=["tenant-admin"])
 
@@ -694,60 +693,10 @@ async def revoke_export_key(
     return ExportKeyOut.model_validate(key)
 
 
-@router.post("/events/{event_id}/export-bundle")
-async def export_bundle(
-    event_id: uuid.UUID,
-    request: Request,
-    ctx: AuthContext = Depends(tenant_admin_context),
-) -> Response:
-    """One step: mint a new scoped export key and return the headless bundle
-    (zip) with the key baked into config.js. The key is otherwise never shown;
-    revoke it any time via the export-keys endpoints."""
-    event = await _get_event(ctx, event_id)
-    tenant = (
-        await ctx.session.execute(
-            select(Tenant).where(Tenant.id == ctx.identity.tenant_id)
-        )
-    ).scalar_one()
-
-    plaintext = f"zsk_{secrets.token_urlsafe(32)}"
-    key = ExportKey(
-        tenant_id=ctx.identity.tenant_id,
-        event_id=event_id,
-        key_prefix=plaintext[:12],
-        key_hash=hash_export_key(plaintext),
-    )
-    ctx.session.add(key)
-    await ctx.session.flush()
-    await _audit_admin(
-        ctx, "export_bundle.created", "export_key", key.id, {"prefix": key.key_prefix}
-    )
-    await ctx.session.commit()
-
-    # The public API base = the origin the admin is browsing from (the frontend
-    # proxies /api/* to us, so that origin serves the API too). Behind the Next
-    # proxy request.base_url is the internal hostname — prefer the browser's
-    # Origin header; ?api_base= overrides for production domains.
-    origin = request.headers.get("origin") or ""
-    api_base = (
-        request.query_params.get("api_base")
-        or origin
-        or str(request.base_url).rstrip("/")
-    )
-    zip_bytes = build_bundle_zip(
-        api_base=api_base,
-        event_id=str(event_id),
-        event_name=event.name,
-        tenant_slug=tenant.slug,
-        export_key=plaintext,
-    )
-    return Response(
-        content=zip_bytes,
-        media_type="application/zip",
-        headers={
-            "Content-Disposition": f'attachment; filename="{tenant.slug}-{event.slug}-headless.zip"'
-        },
-    )
+# Template export is served by the FRONTEND (POST /api/export-nextjs): the zip
+# is a real Next.js project built from the platform's own renderers, which only
+# the frontend has on disk. The vanilla-JS microsite this endpoint used to build
+# was a separate, drifting implementation of the same site and is gone.
 
 
 # ------------------------------------------------------------------ export

@@ -13,6 +13,10 @@ nextjs-zoustec/.env.local
 # runtime data
 backend/media/
 
+# Downloaded customer site exports (generated artifacts — regenerate from the
+# builder's 匯出範本 button; they also carry a real API key in .env.local).
+/*-site/
+
 # os / editor
 .DS_Store
 *.log

@@ -127,6 +127,20 @@ export default function Page() {
     } finally { setMgrBusy(false); }
   }
 
+  /** Show the customer's active key again (decrypted server-side). Keys minted
+   * before recoverable storage existed answer 409 — rotation is the fix. */
+  async function revealKey() {
+    if (!mgr || mgrBusy) return;
+    setMgrBusy(true); setMgrError(''); setNewKey(null);
+    try {
+      const k = await platformApi(`/api/platform/tenants/${mgr.id}/api-key/reveal`);
+      setNewKey(k.key);
+    } catch (e) {
+      if (e instanceof AuthRequired) return router.replace(loginUrl('/zoustec/console', { platform: true }));
+      setMgrError(e.message);
+    } finally { setMgrBusy(false); }
+  }
+
   async function revokeKey(keyId) {
     if (!mgr || mgrBusy || !window.confirm('撤銷此金鑰？使用中的客戶網站將改用離線快照。')) return;
     setMgrBusy(true); setMgrError('');
@@ -186,6 +200,9 @@ export default function Page() {
       setNewT(null);
       setOv(await platformApi('/api/platform/overview?months=6'));
       await openManage(created.id); // continue setup right away (accounts / white-label)
+      // The API key is minted with the tenant — show it immediately (it stays
+      // retrievable here via 查看金鑰, so this is convenience, not last chance).
+      setNewKey(created.api_key || null);
     } catch (e) {
       if (e instanceof AuthRequired) return router.replace(loginUrl('/zoustec/console', { platform: true }));
       setNtError(e.message);
@@ -479,11 +496,14 @@ export default function Page() {
                 ))}
               </div>
             )}
-            <button onClick={createKey} disabled={mgrBusy} style={{height:'38px', padding:'0 14px', borderRadius:'8px', background:'var(--primary-600)', color:'#fff', fontSize:'12px', fontWeight:'700', border:'none', cursor:'pointer', opacity: mgrBusy ? .6 : 1}}>產生／輪替金鑰</button>
-            <div style={{fontSize:'10.5px', color:'var(--text-subtle)', marginTop:'6px', lineHeight:1.5}}>客戶只持有一組金鑰 — 產生新金鑰會自動撤銷舊的全租戶金鑰。</div>
+            <div style={{display:'flex', gap:'8px', flexWrap:'wrap'}}>
+              <button onClick={revealKey} disabled={mgrBusy} style={{height:'38px', padding:'0 14px', borderRadius:'8px', border:'1px solid var(--border-default)', background:'#fff', color:'var(--text-body)', fontSize:'12px', fontWeight:'700', cursor:'pointer', opacity: mgrBusy ? .6 : 1}}>查看金鑰</button>
+              <button onClick={createKey} disabled={mgrBusy} style={{height:'38px', padding:'0 14px', borderRadius:'8px', background:'var(--primary-600)', color:'#fff', fontSize:'12px', fontWeight:'700', border:'none', cursor:'pointer', opacity: mgrBusy ? .6 : 1}}>重新產生金鑰</button>
+            </div>
+            <div style={{fontSize:'10.5px', color:'var(--text-subtle)', marginTop:'6px', lineHeight:1.5}}>客戶只持有一組金鑰 — 重新產生會自動撤銷舊的全租戶金鑰，客戶網站需更新 .env.local。</div>
             {newKey && (
               <div style={{marginTop:'8px', padding:'10px 12px', borderRadius:'8px', background:'var(--status-success-bg, #ECFDF5)', color:'var(--status-success-fg, #047857)', fontSize:'12px', fontWeight:'600', lineHeight:1.7}}>
-                金鑰已產生 ✓ 僅顯示這一次 — 請交給客戶填入其網站的 <span style={{fontFamily:'var(--font-mono)'}}>.env.local</span>（ZOUSTEC_EXPORT_KEY）：<br/>
+                此客戶的 API 金鑰 — 填入其網站的 <span style={{fontFamily:'var(--font-mono)'}}>.env.local</span>（ZOUSTEC_EXPORT_KEY）：<br/>
                 <span style={{fontFamily:'var(--font-mono)', fontWeight:'700', wordBreak:'break-all'}}>{newKey}</span>
               </div>
             )}

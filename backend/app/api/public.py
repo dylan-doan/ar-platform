@@ -12,25 +12,9 @@ from app.core.errors import ApiError
 from app.db.session import anonymous_session, platform_admin_session
 from app.models import Event, Task, Tenant
 from app.schemas import BrandingOut, PublicEventOut
+from app.services.site_payload import build_site_payload, resolve_tenant
 
 router = APIRouter(prefix="/api/public", tags=["public"])
-
-
-def _site_branding(tenant: Tenant) -> dict:
-    """Branding block of the public site payload (event page + tenant landing)."""
-    brand = tenant.brand_config or {}
-    return {
-        "tenant_slug": tenant.slug,
-        "tenant_name": tenant.name,
-        "logo_url": brand.get("logo_url"),
-        "theme_color": brand.get("theme_color"),
-        "show_powered_by": not brand.get("hide_powered_by", False),
-        "landing_title": brand.get("landing_title"),
-        "landing_tagline": brand.get("landing_tagline"),
-        "landing_hero": brand.get("landing_hero"),
-        # White-label plan: CTA/QR opens the tenant's own LIFF app when bound.
-        "line_liff_id": tenant.line_liff_id,
-    }
 
 
 def _branding(tenant: Tenant) -> BrandingOut:
@@ -81,127 +65,16 @@ async def resolve_domain(domain: str) -> BrandingOut:
 @router.get("/site/{tenant_slug}")
 @router.get("/site/{tenant_slug}/{event_slug}")
 async def public_event_site(tenant_slug: str, event_slug: str | None = None) -> dict:
-    """The EVENT WEBSITE payload (spec §VII "auto-generated event website"):
-    everything the public event page renders in one round-trip — event fields
-    + content sections + public task list (no secrets) + tenant branding.
+    """DEPRECATED — un-keyed alias of GET /api/headless/site/{tenant}/{event}.
 
-    Without an event_slug (custom domains land here — PRD §6.2 tenant
-    resolver) the tenant's homepage rule decides what the domain root shows:
-    the admin-pinned event (brand_config.home_mode="event"), else a branded
-    landing listing every active event (home_mode="list", or "auto" with
-    several events), else the single/newest active event."""
+    Both customer rendering paths (platform route + exported project) now read
+    the keyed headless endpoint so their payload cannot diverge. This alias
+    stays for older exported bundles and bookmarks; it delegates to the same
+    builder, so the response is identical.
+    """
     async with platform_admin_session() as session:
-        tenant = (
-            await session.execute(
-                select(Tenant).where(Tenant.slug == tenant_slug, Tenant.is_active)
-            )
-        ).scalar_one_or_none()
-        if tenant is None:
-            raise ApiError(404, "tenant_not_found", "查無此租戶。")
-
-        brand = tenant.brand_config or {}
-        event = None
-        if event_slug:
-            event = (
-                await session.execute(
-                    select(Event)
-                    .where(Event.tenant_id == tenant.id, Event.is_active, Event.slug == event_slug)
-                    .limit(1)
-                )
-            ).scalars().first()
-            if event is None:
-                raise ApiError(404, "event_not_found", "此租戶目前沒有進行中的活動。")
-        else:
-            mode = brand.get("home_mode") or "auto"
-            if mode == "event" and brand.get("home_event_slug"):
-                # Pinned event; if it was deactivated/deleted fall through to auto.
-                event = (
-                    await session.execute(
-                        select(Event)
-                        .where(
-                            Event.tenant_id == tenant.id,
-                            Event.is_active,
-                            Event.slug == brand["home_event_slug"],
-                        )
-                        .limit(1)
-                    )
-                ).scalars().first()
-            if event is None:
-                actives = (
-                    await session.execute(
-                        select(Event)
-                        .where(Event.tenant_id == tenant.id, Event.is_active)
-                        .order_by(Event.created_at.desc())
-                    )
-                ).scalars().all()
-                if not actives:
-                    raise ApiError(404, "event_not_found", "此租戶目前沒有進行中的活動。")
-                if mode == "list" or (mode == "auto" and len(actives) > 1):
-                    counts = dict(
-                        (
-                            await session.execute(
-                                select(Task.event_id, func.count(Task.id))
-                                .where(
-                                    Task.event_id.in_([e.id for e in actives]),
-                                    Task.is_active,
-                                )
-                                .group_by(Task.event_id)
-                            )
-                        ).all()
-                    )
-                    return {
-                        "mode": "landing",
-                        "branding": _site_branding(tenant),
-                        "events": [
-                            {
-                                "slug": e.slug,
-                                "name": e.name,
-                                "description": e.description,
-                                "event_type": e.event_type,
-                                "hero_image": (e.config or {}).get("heroImage"),
-                                "task_count": counts.get(e.id, 0),
-                                "reward_name": e.reward_name,
-                            }
-                            for e in actives
-                        ],
-                    }
-                event = actives[0]
-
-        tasks = (
-            await session.execute(
-                select(Task.name, Task.verification_type, Task.radius_m, Task.sort_order)
-                .where(Task.event_id == event.id, Task.is_active)
-                .order_by(Task.sort_order)
-            )
-        ).all()
-
-        siblings = (
-            await session.execute(
-                select(Event.slug, Event.name)
-                .where(Event.tenant_id == tenant.id, Event.is_active, Event.id != event.id)
-                .order_by(Event.created_at.desc())
-            )
-        ).all()
-
-    return {
-        "mode": "event",
-        "branding": _site_branding(tenant),
-        "event": {
-            "id": str(event.id),
-            "slug": event.slug,
-            "name": event.name,
-            "description": event.description,
-            "event_type": event.event_type,
-            "config": event.config or {},
-            "reward_threshold": event.reward_threshold,
-            "reward_name": event.reward_name,
-        },
-        "tasks": [
-            {"name": t.name, "verification_type": t.verification_type, "radius_m": t.radius_m}
-            for t in tasks
-        ],
-        "other_events": [{"slug": r.slug, "name": r.name} for r in siblings],
-    }
+        tenant = await resolve_tenant(session, tenant_slug)
+        return await build_site_payload(session, tenant, event_slug)
 
 
 @router.get("/events", response_model=list[PublicEventOut])

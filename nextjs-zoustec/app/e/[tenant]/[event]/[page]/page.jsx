@@ -1,7 +1,7 @@
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import EventSubPage from '../../../../../components/event/EventSubPage';
-import { publicGet } from '../../../../../lib/api';
+import { siteGet } from '../../../../../lib/api';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +20,7 @@ function findPage(site, slug) {
 
 export async function generateMetadata({ params }) {
   try {
-    const site = await publicGet(`/api/public/site/${params.tenant}/${params.event}`);
+    const site = await siteGet(params.tenant, params.event);
     const page = findPage(site, params.page);
     return { title: page ? `${page.title} · ${site.event.name}` : site.event.name };
   } catch { return { title: '活動' }; }
@@ -28,7 +28,7 @@ export async function generateMetadata({ params }) {
 
 export default async function Page({ params }) {
   let site;
-  try { site = await publicGet(`/api/public/site/${params.tenant}/${params.event}`); }
+  try { site = await siteGet(params.tenant, params.event); }
   catch { notFound(); }
   const page = findPage(site, params.page);
   if (!page) notFound();

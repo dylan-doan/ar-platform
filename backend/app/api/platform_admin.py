@@ -3,12 +3,14 @@ overview. RBAC: platform_admin only; session is cross-tenant."""
 
 import secrets
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 
 from app.api.deps import AuthContext, platform_admin_context
 from app.api.headless import hash_export_key
+from app.core.crypto import decrypt_secret, encrypt_secret
 from app.core.errors import ApiError
 from app.core.security import hash_password
 from app.models import Event, Member, Stamp, Tenant
@@ -20,6 +22,7 @@ from app.schemas import (
     TenantAdminCreate,
     TenantAdminOut,
     TenantCreate,
+    TenantCreated,
     TenantLiffProvisionRequest,
     TenantOut,
     TenantUpdate,
@@ -42,10 +45,10 @@ async def list_tenants(
     return [TenantOut.model_validate(t) for t in tenants]
 
 
-@router.post("/tenants", response_model=TenantOut, status_code=201)
+@router.post("/tenants", response_model=TenantCreated, status_code=201)
 async def create_tenant(
     body: TenantCreate, ctx: AuthContext = Depends(platform_admin_context)
-) -> TenantOut:
+) -> TenantCreated:
     exists = (
         await ctx.session.execute(select(Tenant.id).where(Tenant.slug == body.slug))
     ).scalar_one_or_none()
@@ -65,8 +68,13 @@ async def create_tenant(
         entity_id=tenant.id,
         data={"slug": tenant.slug},
     )
+    # Every customer gets their API key at onboarding, in the same transaction
+    # as the tenant row — the exported site and the platform-hosted site both
+    # authenticate with it, so a tenant without a key is never a valid state.
+    _, api_key = await _mint_tenant_api_key(ctx, tenant)
     await ctx.session.commit()
-    return TenantOut.model_validate(tenant)
+    out = TenantOut.model_validate(tenant)
+    return TenantCreated(**out.model_dump(), api_key=api_key)
 
 
 @router.patch("/tenants/{tenant_id}", response_model=TenantOut)
@@ -422,6 +430,56 @@ async def overview(
 
 # ------------------------------------------------------------------ tenant API keys (headless)
 
+async def _mint_tenant_api_key(
+    ctx: AuthContext, tenant: Tenant
+) -> tuple[ExportKey, str]:
+    """Issue the customer's single tenant-wide API key, revoking any previous one.
+
+    Stores the SHA-256 hash (the authentication path) plus the AES-GCM encrypted
+    plaintext, so the console can reveal the key again later. Does NOT commit —
+    the caller decides the transaction boundary (tenant creation mints inside the
+    same transaction as the tenant row).
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    old_keys = (
+        (
+            await ctx.session.execute(
+                select(ExportKey).where(
+                    ExportKey.tenant_id == tenant.id,
+                    ExportKey.event_id.is_(None),
+                    ExportKey.revoked_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for old in old_keys:
+        old.revoked_at = now
+
+    plaintext = f"zsk_{secrets.token_urlsafe(32)}"
+    key = ExportKey(
+        tenant_id=tenant.id,
+        event_id=None,
+        key_prefix=plaintext[:12],
+        key_hash=hash_export_key(plaintext),
+        key_cipher=encrypt_secret(plaintext),
+    )
+    ctx.session.add(key)
+    await ctx.session.flush()
+    await record_audit(
+        ctx.session,
+        tenant_id=tenant.id,
+        actor_type="platform_admin",
+        actor_id=ctx.identity.subject_id,
+        action="tenant_api_key.created",
+        entity_type="export_key",
+        entity_id=key.id,
+        data={"prefix": key.key_prefix},
+    )
+    return key, plaintext
+
+
 @router.get("/tenants/{tenant_id}/api-keys", response_model=list[ExportKeyOut])
 async def list_tenant_api_keys(
     tenant_id: uuid.UUID, ctx: AuthContext = Depends(platform_admin_context)
@@ -454,39 +512,54 @@ async def create_tenant_api_key(
     ROTATION semantics — the customer holds exactly ONE active key: issuing
     a new one revokes every previous tenant-wide key."""
     tenant = await _get_tenant(ctx, tenant_id)
-    from datetime import datetime, timezone
+    key, plaintext = await _mint_tenant_api_key(ctx, tenant)
+    await ctx.session.commit()
+    out = ExportKeyOut.model_validate(key)
+    return ExportKeyCreated(**out.model_dump(), key=plaintext)
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    old_keys = (
+
+@router.get("/tenants/{tenant_id}/api-key/reveal", response_model=ExportKeyCreated)
+async def reveal_tenant_api_key(
+    tenant_id: uuid.UUID, ctx: AuthContext = Depends(platform_admin_context)
+) -> ExportKeyCreated:
+    """Show the customer's active API key again (tenant detail screen).
+
+    Decrypts key_cipher; platform-admin auth only. Keys minted before
+    recoverable storage existed (or written under a since-rotated
+    SECRET_ENCRYPTION_KEY) cannot be decrypted — 409 tells the console to offer
+    rotation instead of showing a broken value."""
+    tenant = await _get_tenant(ctx, tenant_id)
+    key = (
         (
             await ctx.session.execute(
-                select(ExportKey).where(
+                select(ExportKey)
+                .where(
                     ExportKey.tenant_id == tenant.id,
                     ExportKey.event_id.is_(None),
                     ExportKey.revoked_at.is_(None),
                 )
+                .order_by(ExportKey.created_at.desc())
+                .limit(1)
             )
         )
         .scalars()
-        .all()
+        .first()
     )
-    for old in old_keys:
-        old.revoked_at = now
-    plaintext = f"zsk_{secrets.token_urlsafe(32)}"
-    key = ExportKey(
-        tenant_id=tenant.id,
-        event_id=None,
-        key_prefix=plaintext[:12],
-        key_hash=hash_export_key(plaintext),
-    )
-    ctx.session.add(key)
-    await ctx.session.flush()
+    if key is None:
+        raise ApiError(404, "key_not_found", "此租戶尚未發行 API 金鑰。")
+
+    plaintext = decrypt_secret(key.key_cipher or "")
+    if plaintext is None:
+        raise ApiError(
+            409, "key_not_recoverable", "此金鑰無法還原，請重新產生一組新金鑰。"
+        )
+
     await record_audit(
         ctx.session,
         tenant_id=tenant.id,
         actor_type="platform_admin",
         actor_id=ctx.identity.subject_id,
-        action="tenant_api_key.created",
+        action="tenant_api_key.revealed",
         entity_type="export_key",
         entity_id=key.id,
         data={"prefix": key.key_prefix},

@@ -3,6 +3,9 @@
  * in the drag-drop designer). Compact brand header + nav instead of the
  * full-bleed hero, then the page's Puck document, then the shared footer.
  * The site-wide theme comes from the HOME document (siteTheme).
+ *
+ * SHARED FILE — copied verbatim into the Next.js project export (see the note
+ * in EventSite.jsx).
  */
 
 import Link from 'next/link';
@@ -11,7 +14,7 @@ import { Icon } from '../Icon';
 import JoinCta from './JoinCta';
 import { brandPalette } from '../../lib/brand';
 import { siteConfig, themeStyles } from '../../lib/site-blocks';
-import { CustomCss, siteNav, siteRoot, siteTheme } from './EventSite';
+import { CustomCss, siteJoinHref, siteNav, siteRoot, siteTheme } from './EventSite';
 
 const WRAP = { maxWidth: '1140px', width: '100%', margin: '0 auto', padding: '0 clamp(16px, 4vw, 26px)' };
 
@@ -22,10 +25,7 @@ export default function EventSubPage({ site, page, linkBase }) {
   const eventHref = `${base}/${event.slug}`;
   const nav = siteNav(event, eventHref);
   const theme = themeStyles(siteTheme(event), siteRoot(event).themeCustom);
-  const liffId = branding.line_liff_id || process.env.NEXT_PUBLIC_LIFF_ID;
-  const joinHref = liffId
-    ? `https://liff.line.me/${liffId}/experience/login?tenant=${branding.tenant_slug}&event=${event.id}`
-    : `/experience/login?tenant=${branding.tenant_slug}&event=${event.id}`;
+  const joinHref = siteJoinHref(site);
   // The home theme (incl. customizer values) forced onto this page's root —
   // one theme for the whole site.
   const data = { ...page.data, root: { ...(page.data?.root || {}), props: { ...(page.data?.root?.props || {}), theme: siteTheme(event), themeCustom: siteRoot(event).themeCustom } } };

@@ -73,6 +73,16 @@ class TenantOut(BaseModel):
     created_at: datetime
 
 
+class TenantCreated(TenantOut):
+    """Tenant creation response — carries the API key minted at onboarding.
+
+    The key is also recoverable later from the tenant detail screen
+    (GET /api/platform/tenants/{id}/api-key/reveal), so this is a convenience
+    for the creation modal rather than the only chance to copy it."""
+
+    api_key: str
+
+
 class TenantAdminCreate(BaseModel):
     """Console-provisioned customer admin account. The server generates a
     temporary password (returned once) and forces a change on first login."""
@@ -400,7 +410,8 @@ class ExportKeyOut(BaseModel):
 
 
 class ExportKeyCreated(ExportKeyOut):
-    """Returned exactly once at creation — the plaintext key is never stored."""
+    """Carries the plaintext key — returned at creation, and again by the
+    console's reveal endpoint (tenant-wide keys store an encrypted copy)."""
 
     key: str
 

@@ -24,6 +24,10 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
+      - key: SECRET_ENCRYPTION_KEY    # AES-GCM key for recoverable tenant API keys.
+        generateValue: true           # NEVER rotate: stored keys become unreadable.
+      - key: PLATFORM_SERVICE_KEY     # frontend → headless site API (first-party; any tenant)
+        generateValue: true
       - key: LINE_CHANNEL_ID
         value: "2010613964"
       - key: AUTH_DEV_MODE         # PoC: keep true for dev-login demos; turn OFF at handover
@@ -49,6 +53,11 @@ services:
     envVars:
       - key: BACKEND_INTERNAL_URL  # backend URL above (build arg for rewrites + middleware)
         sync: false
+      - key: PLATFORM_SERVICE_KEY  # must MATCH the backend's — customer sites we host
+        fromService:               # authenticate to the headless site API with it
+          name: zoustec-backend
+          type: web
+          envVarKey: PLATFORM_SERVICE_KEY
       - key: NEXT_PUBLIC_LIFF_ID
         value: "2010613964-3UzmddVV"
       - key: NEXT_PUBLIC_TENANT_SLUG

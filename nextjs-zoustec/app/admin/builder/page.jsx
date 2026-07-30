@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Icon } from '../../../components/Icon';
 import AdminShell from '../../../components/admin/AdminShell';
-import { adminApi, adminDownload, AuthRequired, loginUrl } from '../../../lib/admin-client';
+import { adminApi, adminSession, AuthRequired, loginUrl } from '../../../lib/admin-client';
 import EventSections from '../../../components/event/EventSections';
 import { DEFAULT_SECTIONS } from '../../../lib/event-sections';
 
@@ -204,12 +204,31 @@ export default function Page() {
     } catch (e) { setError(e.message); }
   }
 
+  /** Full Next.js project zip — the same renderers the platform serves, so the
+   * self-hosted site matches this one. Content live-syncs via the customer's
+   * tenant API key (issued in the Zoustec console; pasted into .env.local). */
   async function exportBundle() {
     if (!event || busy) return;
     setBusy('export'); setError('');
     try {
-      await adminDownload(`/api/admin/events/${event.id}/export-bundle`, `${event.slug}-bundle.zip`);
-      note('已匯出範本 ✓');
+      const s = adminSession.get('tenant');
+      const res = await fetch('/api/export-nextjs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${s?.token || ''}` },
+        body: JSON.stringify({ eventId: event.id }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d?.error?.message || `HTTP ${res.status}`);
+      }
+      const name = (res.headers.get('content-disposition')?.match(/filename="(.+)"/) || [])[1]
+        || `${event.slug}-site.zip`;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name; a.click();
+      URL.revokeObjectURL(url);
+      note('已匯出 Next.js 專案 ✓');
     } catch (e) { if (!guard(e)) setError(e.message); } finally { setBusy(''); }
   }
 

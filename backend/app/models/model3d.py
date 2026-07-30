@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, String, func
+from sqlalchemy import ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -39,8 +39,10 @@ class Model3DJob(Base, UUIDPk, Timestamped):
 class ExportKey(Base, UUIDPk):
     """API key for a headless export bundle (spec §3 template export).
 
-    Only the SHA-256 hash is stored; the plaintext key is shown exactly once at
-    creation. Scoped to one event, read-only headless endpoints, revocable.
+    `key_hash` (SHA-256) is the authentication path: a presented key is hashed
+    and looked up. `key_cipher` additionally stores the plaintext encrypted with
+    AES-256-GCM (app/core/crypto.py) so the console can reveal the key again on
+    the tenant detail screen. Read-only headless endpoints, revocable.
     """
 
     __tablename__ = "export_keys"
@@ -58,5 +60,8 @@ class ExportKey(Base, UUIDPk):
     )
     key_prefix: Mapped[str] = mapped_column(String(12))  # shown in admin lists
     key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # AES-256-GCM("v1.<nonce>.<ct>") of the plaintext — reveal only. NULL for
+    # rows minted before recoverable keys existed.
+    key_cipher: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     revoked_at: Mapped[datetime | None] = mapped_column(nullable=True)

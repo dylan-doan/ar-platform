@@ -19,9 +19,13 @@ npm start          # 或部署到 Vercel / Render
 
 ## 運作方式
 
-- 內容（版面區塊、佈景主題、頁面、任務清單）**每 60 秒自動同步**自
-  Zoustec 平台（headless API，使用 `.env.local` 內的專屬金鑰）。
-  在平台的拖曳設計器修改後，此網站無需重新部署即會更新。
+- 本專案的畫面元件與 Zoustec 平台**完全相同**（同一份原始碼匯出），
+  資料也走**同一支已驗證的 API**（`/api/headless/site/…`，以 `.env.local`
+  內的專屬金鑰驗證）。因此不論網站由 Zoustec 代管或由貴公司自架，
+  呈現結果一致。
+- 內容（版面區塊、佈景主題、頁面、任務清單）**每 60 秒自動同步**。
+  在平台的拖曳設計器修改後，此網站無需重新部署即會更新
+  （可用 `ZOUSTEC_REVALIDATE` 調整秒數）。
 - 平台離線或金鑰被撤銷時，自動改用 `data/site.json` 的快照。
 - 玩家的 AR 集章流程仍在 LINE（LIFF）內進行 — 「開始旅程」按鈕
   會開啟 LINE。報名、任務、印章、獎勵等邏輯全部由平台提供。
@@ -30,13 +34,18 @@ npm start          # 或部署到 Vercel / Render
 
 | 路徑 | 說明 |
 |---|---|
-| `app/page.jsx` | 首頁（Hero + 區塊內容） |
-| `app/[page]/page.jsx` | 子頁面（於平台設計器建立） |
-| `components/Site.jsx` | Hero／導覽列／頁尾 — 想改整體版型從這裡 |
+| `app/page.jsx` | 首頁（單一活動或多活動總覽） |
+| `app/[page]/page.jsx` | 活動頁與子頁面（於平台設計器建立） |
+| `components/event/EventSite.jsx` | 活動首頁版型（Hero／導覽列／頁尾） |
+| `components/event/EventSubPage.jsx` | 子頁面版型 |
+| `components/event/TenantLanding.jsx` | 多活動總覽頁 |
 | `lib/site-blocks.jsx` | 區塊庫 + 佈景主題（與平台相同）— 可自訂區塊樣式 |
 | `lib/site-data.js` | 平台 API 同步邏輯 |
 | `data/site.json` | 匯出時的內容快照（離線備援） |
 | `.env.local` | API 位址與專屬金鑰（**請勿公開此檔**） |
+
+> `components/` 與 `lib/` 內的檔案是平台正在使用的同一份程式碼。
+> 修改它們即可自訂版型，但之後重新匯出會覆蓋您的修改 — 建議另存新元件。
 
 ## 修改內容 vs 修改程式碼
 
@@ -48,10 +57,12 @@ npm start          # 或部署到 Vercel / Render
 
 ## 金鑰管理
 
-貴公司持有**一組** Zoustec API 金鑰（開通服務時由 Zoustec 提供，
-可要求輪替 — 舊金鑰立即失效）。將它填入 `.env.local` 的
-`ZOUSTEC_EXPORT_KEY` 即啟用內容自動同步；未填時網站以
-`data/site.json` 快照運作，功能不受影響。
+貴公司持有**一組** Zoustec API 金鑰，於開通服務（建立客戶帳號）時
+自動產生。如遺失可請 Zoustec 於後台再次提供；亦可要求重新產生
+（舊金鑰立即失效，需同步更新 `.env.local`）。
+
+將金鑰填入 `.env.local` 的 `ZOUSTEC_EXPORT_KEY` 即啟用內容自動同步；
+未填時網站以 `data/site.json` 快照運作，功能不受影響。
 
 金鑰為唯讀，僅能讀取貴公司活動的公開內容（無會員資料、無寫入
 權限），請勿提交到公開的版本庫（`.gitignore` 已排除 `.env.local`）。

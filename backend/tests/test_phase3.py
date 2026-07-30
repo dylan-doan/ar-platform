@@ -281,28 +281,22 @@ async def test_model3d_requires_admin_and_is_tenant_isolated(client, demo):
 
 # ------------------------------------------------------------------ headless export
 
-async def test_export_bundle_and_headless_read(client, demo):
+async def _mint_event_key(client, token, event_id: str) -> str:
+    """Event-scoped key via the admin endpoint (the project export no longer
+    mints one — the customer holds a single console-issued tenant key)."""
+    res = await client.post(
+        f"/api/admin/events/{event_id}/export-keys", headers=bearer(token)
+    )
+    assert res.status_code == 200, res.text
+    key = res.json()["key"]
+    assert key.startswith("zsk_")
+    return key
+
+
+async def test_export_key_and_headless_read(client, demo):
     token = await login(client, "alpha", "admin-a")
     event_id = str(demo["event_a"].id)
-
-    bundle = await client.post(
-        f"/api/admin/events/{event_id}/export-bundle", headers=bearer(token)
-    )
-    assert bundle.status_code == 200
-    assert bundle.headers["content-type"] == "application/zip"
-
-    # Extract the key from the zip's config.js.
-    import json
-    import re
-    import zipfile
-
-    zf = zipfile.ZipFile(io.BytesIO(bundle.content))
-    assert set(zf.namelist()) == {"index.html", "config.js", "README.md"}
-    config = json.loads(re.search(r"= (\{.*\});", zf.read("config.js").decode(), re.S).group(1))
-    assert config["EVENT_ID"] == event_id
-    assert config["TENANT_SLUG"] == "alpha"
-    export_key = config["EXPORT_KEY"]
-    assert export_key.startswith("zsk_")
+    export_key = await _mint_event_key(client, token, event_id)
 
     # Headless read with the key — no user auth needed.
     data = await client.get(
@@ -318,26 +312,87 @@ async def test_export_bundle_and_headless_read(client, demo):
         assert "qr_token" not in task
 
 
+async def test_headless_site_payload_matches_public_site(client, demo):
+    """The platform's own customer sites and an exported project must render
+    from the SAME payload — byte-identical, not merely similar."""
+    token = await login(client, "alpha", "admin-a")
+    event_id = str(demo["event_a"].id)
+    export_key = await _mint_event_key(client, token, event_id)
+
+    keyed = await client.get(
+        "/api/headless/site/alpha/walk", headers={"X-Export-Key": export_key}
+    )
+    assert keyed.status_code == 200
+    legacy = await client.get("/api/public/site/alpha/walk")
+    assert legacy.status_code == 200
+    assert keyed.json() == legacy.json()
+
+    body = keyed.json()
+    assert body["mode"] == "event"
+    assert body["event"]["slug"] == "walk"
+    assert body["branding"]["tenant_slug"] == "alpha"
+    for task in body["tasks"]:
+        assert "qr_token" not in task
+
+
+async def test_headless_site_rejects_other_tenant_and_bad_key(client, demo):
+    token = await login(client, "alpha", "admin-a")
+    export_key = await _mint_event_key(client, token, str(demo["event_a"].id))
+
+    # A tenant A key cannot read tenant B's site by changing the slug.
+    assert (
+        await client.get(
+            "/api/headless/site/beta", headers={"X-Export-Key": export_key}
+        )
+    ).status_code == 403
+    # An event-scoped key cannot read a sibling event of its OWN tenant.
+    sibling = await client.post(
+        "/api/admin/events",
+        headers=bearer(token),
+        json={"slug": "ride", "name": "Alpha Ride", "event_type": "city"},
+    )
+    assert sibling.status_code == 201, sibling.text
+    assert (
+        await client.get(
+            "/api/headless/site/alpha/ride", headers={"X-Export-Key": export_key}
+        )
+    ).status_code == 403
+    assert (
+        await client.get(
+            "/api/headless/site/alpha/walk", headers={"X-Export-Key": "zsk_nope"}
+        )
+    ).status_code == 401
+    assert (await client.get("/api/headless/site/alpha/walk")).status_code == 401
+
+
+async def test_platform_service_key_reads_any_tenant(client, demo, monkeypatch):
+    """The platform frontend's first-party credential: same keyed code path for
+    a site we host as for one the customer self-hosts."""
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("PLATFORM_SERVICE_KEY", "svc_test_key")
+    try:
+        for slug in ("alpha", "beta"):
+            res = await client.get(
+                f"/api/headless/site/{slug}", headers={"X-Export-Key": "svc_test_key"}
+            )
+            assert res.status_code == 200, res.text
+            assert res.json()["branding"]["tenant_slug"] == slug
+        # A near-miss is still just an unknown export key.
+        assert (
+            await client.get(
+                "/api/headless/site/alpha", headers={"X-Export-Key": "svc_test_ke"}
+            )
+        ).status_code == 401
+    finally:
+        get_settings.cache_clear()
+
+
 async def test_headless_key_is_event_scoped_and_revocable(client, demo):
     token = await login(client, "alpha", "admin-a")
     event_id = str(demo["event_a"].id)
-
-    bundle = await client.post(
-        f"/api/admin/events/{event_id}/export-bundle", headers=bearer(token)
-    )
-    import io as _io
-    import json
-    import re
-    import zipfile
-
-    config = json.loads(
-        re.search(
-            r"= (\{.*\});",
-            zipfile.ZipFile(_io.BytesIO(bundle.content)).read("config.js").decode(),
-            re.S,
-        ).group(1)
-    )
-    export_key = config["EXPORT_KEY"]
+    export_key = await _mint_event_key(client, token, event_id)
 
     # Wrong event (even same tenant) → 403.
     other_event = str(demo["event_b"].id)
@@ -375,7 +430,7 @@ async def test_headless_key_is_event_scoped_and_revocable(client, demo):
 async def test_export_keys_are_tenant_isolated(client, demo):
     admin_a = await login(client, "alpha", "admin-a")
     event_a = str(demo["event_a"].id)
-    await client.post(f"/api/admin/events/{event_a}/export-bundle", headers=bearer(admin_a))
+    await _mint_event_key(client, admin_a, event_a)
 
     admin_b = await login(client, "beta", "admin-b")
     # Admin B cannot list or create keys on tenant A's event.
@@ -383,7 +438,7 @@ async def test_export_keys_are_tenant_isolated(client, demo):
         await client.get(f"/api/admin/events/{event_a}/export-keys", headers=bearer(admin_b))
     ).status_code == 404
     assert (
-        await client.post(f"/api/admin/events/{event_a}/export-bundle", headers=bearer(admin_b))
+        await client.post(f"/api/admin/events/{event_a}/export-keys", headers=bearer(admin_b))
     ).status_code == 404
 
     keys_a = (

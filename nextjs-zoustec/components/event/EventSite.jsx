@@ -7,6 +7,13 @@
  * into the LIFF experience (QR modal on desktop — see JoinCta). White-label:
  * colors/logo come from tenant branding; "Powered by Zoustec" obeys the
  * platform flag.
+ *
+ * SHARED FILE — the Next.js project export copies this verbatim, so a customer
+ * self-hosting their site renders exactly what the platform renders. Keep it
+ * host-agnostic: the only host-specific inputs are the `linkBase` prop and the
+ * LIFF id, which arrives in the payload (branding.line_liff_id) with an env
+ * fallback that resolves on either host. Do not import platform-only modules
+ * here — anything added must also exist in export-template/.
  */
 
 import Link from 'next/link';
@@ -16,6 +23,37 @@ import EventSections from './EventSections';
 import JoinCta from './JoinCta';
 import { brandPalette } from '../../lib/brand';
 import { siteConfig, themeStyles } from '../../lib/site-blocks';
+
+/** LIFF app that the CTA/QR opens.
+ *
+ * The tenant's own LIFF app (white-label plan) wins over the shared platform
+ * one. NEXT_PUBLIC_LIFF_ID is the platform fallback; ZOUSTEC_LIFF_ID is the
+ * exported project's — reading both keeps this file identical on either host.
+ */
+export function siteLiffId(branding) {
+  return (
+    branding.line_liff_id ||
+    process.env.NEXT_PUBLIC_LIFF_ID ||
+    process.env.ZOUSTEC_LIFF_ID ||
+    ''
+  );
+}
+
+/** CTA target: LIFF permalink when a LIFF app is bound.
+ *
+ * The permalink works from ANY host — including the customer's own domain,
+ * where a relative link would put LINE's OAuth redirectUri outside the LIFF
+ * endpoint scope (400 invalid url). Falls back to the in-app route, which only
+ * resolves on the platform host.
+ */
+export function siteJoinHref(site) {
+  const { branding, event } = site;
+  const query = `tenant=${branding.tenant_slug}&event=${event.id}`;
+  const liffId = siteLiffId(branding);
+  return liffId
+    ? `https://liff.line.me/${liffId}/experience/login?${query}`
+    : `/experience/login?${query}`;
+}
 
 /** Sub-pages shown in the site nav (multipage: event.config.pages). */
 export function navPages(event) {
@@ -66,16 +104,8 @@ export default function EventSite({ site, linkBase }) {
   const p = brandPalette(branding.theme_color || '#0E7490') || {};
   // '' on a customer domain (white-label /{slug}), /e/{tenant} on the platform.
   const base = linkBase ?? `/e/${branding.tenant_slug}`;
-  // LIFF permalink (same strategy as QR): works from ANY host — including the
-  // customer's custom domain, where a relative link would put LINE's OAuth
-  // redirectUri outside the LIFF endpoint scope (400 invalid url). Mobile
-  // opens straight into LINE; desktop shows a QR modal (JoinCta).
-  // White-label plan: the tenant's own LIFF app wins over the shared one.
-  const liffId = branding.line_liff_id || process.env.NEXT_PUBLIC_LIFF_ID;
-  const joinQuery = `tenant=${branding.tenant_slug}&event=${event.id}`;
-  const joinHref = liffId
-    ? `https://liff.line.me/${liffId}/experience/login?${joinQuery}`
-    : `/experience/login?${joinQuery}`;
+  // Mobile opens straight into LINE; desktop shows a QR modal (JoinCta).
+  const joinHref = siteJoinHref(site);
   const hero = event.config?.heroImage;
   const theme = themeStyles(siteTheme(event), siteRoot(event).themeCustom);
   // v2 (unified designer): stats/tasks are smart BLOCKS inside the document,

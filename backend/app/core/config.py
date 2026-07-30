@@ -21,6 +21,18 @@ class Settings(BaseSettings):
     # --- auth / JWT ---------------------------------------------------------
     jwt_secret: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"
+    # AES-256-GCM key material for secrets that must be read back (tenant API
+    # keys — the console reveals them on the tenant detail screen). Keep it
+    # STABLE: rotating this makes every stored key unreadable (they must then be
+    # re-issued). Falls back to jwt_secret when unset (dev only).
+    secret_encryption_key: str = ""
+
+    # Service key the platform's own frontend presents to the headless site API,
+    # so a customer site hosted BY US takes the same authenticated code path as
+    # the same site self-hosted by the customer. Valid for any tenant (the URL
+    # slug picks one) — it is a first-party credential, never handed out.
+    # Unset = the platform frontend cannot read the keyed endpoint.
+    platform_service_key: str = ""
     # Session lifetime (spec §5.6: define token flow + session lifetime explicitly).
     jwt_expires_minutes: int = 60 * 24  # 24h — an event visit fits in a day
 

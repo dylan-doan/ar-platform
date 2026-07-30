@@ -43,22 +43,46 @@ export async function POST(req) {
   }
 
   // Snapshot via the caller's own admin auth (RLS-scoped to their tenant).
-  let event, tasks, branding;
+  let event, tasks, branding, others;
   try {
     const events = await backendGet('/api/admin/events', auth);
     event = events.find((e) => e.id === eventId);
     if (!event) return NextResponse.json({ error: { message: '找不到活動。' } }, { status: 404 });
     tasks = await backendGet(`/api/admin/events/${eventId}/tasks`, auth);
     branding = await backendGet('/api/admin/branding', auth);
+    others = events.filter((e) => e.id !== eventId && e.is_active !== false);
   } catch (e) {
     return NextResponse.json(e.body || { error: { message: e.message } }, { status: e.status || 502 });
   }
 
-  // Public task shape only — no QR secrets inside the handed-over project.
+  // Offline fallback snapshot. Same shape as GET /api/headless/site/... so the
+  // renderers cannot tell the two apart — public task fields only, no QR
+  // secrets inside the handed-over project.
   const site = {
-    event,
+    mode: 'event',
+    branding: {
+      tenant_slug: branding.tenant_slug,
+      tenant_name: branding.tenant_name,
+      logo_url: branding.logo_url ?? null,
+      theme_color: branding.theme_color ?? null,
+      show_powered_by: branding.show_powered_by !== false,
+      landing_title: branding.landing_title ?? null,
+      landing_tagline: branding.landing_tagline ?? null,
+      landing_hero: branding.landing_hero ?? null,
+      line_liff_id: branding.line_liff_id ?? null,
+    },
+    event: {
+      id: event.id,
+      slug: event.slug,
+      name: event.name,
+      description: event.description,
+      event_type: event.event_type,
+      config: event.config || {},
+      reward_threshold: event.reward_threshold,
+      reward_name: event.reward_name,
+    },
     tasks: tasks.map((t) => ({ name: t.name, verification_type: t.verification_type, radius_m: t.radius_m })),
-    branding,
+    other_events: others.map((e) => ({ slug: e.slug, name: e.name })),
     tenant_slug: branding.tenant_slug,
   };
 
@@ -73,9 +97,21 @@ export async function POST(req) {
   const readmeRaw = await fs.readFile(path.join(root, 'export-template', 'README.md'), 'utf8');
   zip.file('README.md', readmeRaw.replaceAll('{{EVENT_NAME}}', event.name));
 
-  // The real block library — byte-identical to what the designer renders.
-  zip.file('lib/site-blocks.jsx', await fs.readFile(path.join(root, 'lib', 'site-blocks.jsx')));
-  zip.file('components/Icon.jsx', await fs.readFile(path.join(root, 'components', 'Icon.jsx')));
+  // The REAL renderers + block library — byte-identical to what the platform
+  // serves, so the handed-over project renders the same site. Anything these
+  // files import must be copied here too.
+  for (const rel of [
+    ['lib', 'site-blocks.jsx'],
+    ['lib', 'brand.js'],
+    ['components', 'Icon.jsx'],
+    ['components', 'event', 'EventSite.jsx'],
+    ['components', 'event', 'EventSubPage.jsx'],
+    ['components', 'event', 'EventSections.jsx'],
+    ['components', 'event', 'JoinCta.jsx'],
+    ['components', 'event', 'TenantLanding.jsx'],
+  ]) {
+    zip.file(rel.join('/'), await fs.readFile(path.join(root, ...rel)));
+  }
 
   zip.file('data/site.json', JSON.stringify(site, null, 2));
 
@@ -83,9 +119,9 @@ export async function POST(req) {
   const liffId = branding.line_liff_id || process.env.NEXT_PUBLIC_LIFF_ID || '';
   zip.file('.env.local', [
     `ZOUSTEC_API_BASE=${apiBase}`,
-    `ZOUSTEC_EVENT_ID=${eventId}`,
-    '# 貼上 Zoustec 發給貴公司的 API 金鑰（一組即可）以啟用內容自動同步；',
-    '# 留空時網站以 data/site.json 快照運作。',
+    `ZOUSTEC_TENANT_SLUG=${site.tenant_slug}`,
+    '# 貼上 Zoustec 發給貴公司的 API 金鑰（每個客戶一組，於後台租戶頁可再次查看）',
+    '# 以啟用內容自動同步；留空時網站以 data/site.json 快照運作。',
     'ZOUSTEC_EXPORT_KEY=',
     `ZOUSTEC_LIFF_ID=${liffId}`,
     '',

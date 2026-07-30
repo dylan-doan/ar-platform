@@ -68,6 +68,27 @@ export async function publicGet(path) {
   return apiFetch(path);
 }
 
+/**
+ * GET the event-website payload for a customer site we host.
+ *
+ * Deliberately the SAME keyed endpoint the exported Next.js project calls, so
+ * a customer's site renders identically whether it runs here or on their own
+ * server. PLATFORM_SERVICE_KEY is our first-party credential (any tenant — the
+ * slug in the path selects one); it is never handed to a customer.
+ *
+ * @param tenant tenant slug
+ * @param event  event slug, or undefined for the domain root (the tenant's
+ *   homepage rule then decides: single event, pinned event, or landing list)
+ */
+export async function siteGet(tenant, event) {
+  const path = event
+    ? `/api/headless/site/${tenant}/${encodeURIComponent(event)}`
+    : `/api/headless/site/${tenant}`;
+  return apiFetch(path, {
+    headers: { 'x-export-key': process.env.PLATFORM_SERVICE_KEY || '' },
+  });
+}
+
 // ---------------------------------------------------------------- formatting
 
 export function fmt(n) {

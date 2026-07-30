@@ -2,7 +2,7 @@ import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import EventSite from '../../../components/event/EventSite';
 import TenantLanding from '../../../components/event/TenantLanding';
-import { publicGet } from '../../../lib/api';
+import { siteGet } from '../../../lib/api';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +17,7 @@ function linkBase(tenant) {
 
 export async function generateMetadata({ params }) {
   try {
-    const site = await publicGet(`/api/public/site/${params.tenant}`);
+    const site = await siteGet(params.tenant);
     if (site.mode === 'landing') return { title: `${site.branding.tenant_name} · 活動` };
     return { title: `${site.event.name} · ${site.branding.tenant_name}` };
   } catch { return { title: '活動' }; }
@@ -25,7 +25,7 @@ export async function generateMetadata({ params }) {
 
 export default async function Page({ params }) {
   let site;
-  try { site = await publicGet(`/api/public/site/${params.tenant}`); }
+  try { site = await siteGet(params.tenant); }
   catch { notFound(); }
   const base = linkBase(params.tenant);
   if (site.mode === 'landing') return <TenantLanding site={site} linkBase={base} />;
