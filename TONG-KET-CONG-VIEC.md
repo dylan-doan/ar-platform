@@ -204,7 +204,7 @@ cây component (`EventSite.jsx` 219 dòng vs `export-template/Site.jsx` 172 dòn
 |---|---|
 | `app/services/site_payload.py` (mới) | **MỘT** builder payload site. Cả `/api/public/site` (giữ làm alias deprecated cho bundle cũ) và `/api/headless/site` đều gọi nó → payload không thể lệch. Test khẳng định `keyed.json() == legacy.json()` |
 | `GET /api/headless/site/{tenant}/{event?}` (mới) | Đường dữ liệu **duy nhất** cho site khách. Resolve theo tenant-slug + landing-mode (trước chỉ theo event_id). Key tenant-wide đọc mọi event của mình; key event-scoped ghim 1 event; slug trong URL phải khớp tenant của key (403 nếu không) |
-| `PLATFORM_SERVICE_KEY` (mới) | Credential first-party để frontend platform gọi chính endpoint keyed đó → site khách **do mình host** đi đúng code path như site khách **tự host**. So sánh constant-time. `render.yaml` dùng `fromService` để 2 service chung 1 giá trị |
+| `PLATFORM_SERVICE_KEY` (mới) | Credential first-party để frontend platform gọi chính endpoint keyed đó → site khách **do mình host** đi đúng code path như site khách **tự host**. So sánh constant-time. `render.yaml` dùng `fromService` để 2 service chung 1 giá trị. **Khi chưa set thì `siteGet()` fallback sang `/api/public/site`** — cùng builder nên payload y hệt, site không bao giờ chết vì thiếu env (bài học từ commit `f2642b3`, xem dưới) |
 | `app/core/crypto.py` + migration `0010` | AES-256-GCM (`v1.<nonce>.<ct>`), cột `export_keys.key_cipher`. Key **xem lại được** ở chi tiết tenant — `key_hash` vẫn là đường xác thực. `SECRET_ENCRYPTION_KEY` **không được rotate** (mọi key thành không đọc nổi) |
 | `create_tenant` mint key | Tạo tenant = có key luôn, cùng transaction (`TenantCreated.api_key`). `GET /tenants/{id}/api-key/reveal` decrypt cho console; 409 `key_not_recoverable` với row cũ → mời rotate |
 | Gộp component | Xóa `export-template/components/Site.jsx`. Export copy **chính** `EventSite/EventSubPage/TenantLanding/EventSections/JoinCta/Icon/brand.js/site-blocks.jsx`. Thêm `siteJoinHref()`/`siteLiffId()` đọc cả `NEXT_PUBLIC_LIFF_ID` và `ZOUSTEC_LIFF_ID` → 1 file chạy 2 host |
@@ -217,10 +217,19 @@ export offline → `npm install && npm run build && npm start`: home render
 branding + `城市探索`, sub-page render Puck block, slug lạ → 404. Bundle
 205 kB First Load JS **trùng** `/e/[tenant]` của platform → đúng 1 cây component.
 
-**Còn lại**: bundle `bnk-tham-quan-vinh-5os8-site/` trong repo là bản export
-CŨ (`ZOUSTEC_EVENT_ID`, `components/Site.jsx`) — export lại để dùng luồng mới.
-Prod cần set `SECRET_ENCRYPTION_KEY` + `PLATFORM_SERVICE_KEY`; tenant tạo
-trước session này chưa có key → bấm 重新產生金鑰.
+**Sự cố đã gặp & sửa** (`f2642b3` → `37ee381`): sau khi push, site khách trả
+trang lỗi Next (HTTP 200 nhưng `__next_error__`), `/e/bnk` → 404. Nguyên nhân:
+`siteGet()` luôn gửi key nhưng `PLATFORM_SERVICE_KEY` **chưa có trên Render** —
+`fromService` trong `render.yaml` chỉ áp dụng khi **Manual Sync Blueprint**,
+KHÔNG áp dụng cho auto-deploy lúc push. Đã sửa: `siteGet()` fallback sang
+`/api/public/site` khi chưa cấu hình key. **Bài học: đừng để đường render của
+khách phụ thuộc một env var mới mà không có fallback.**
+
+**Còn lại**: bundle `bnk-tham-quan-vinh-5os8-site/` là bản export CŨ
+(`ZOUSTEC_EVENT_ID`, `components/Site.jsx`) — đã gitignore (`/*-site/`), export
+lại để dùng luồng mới. Prod **nên** set `SECRET_ENCRYPTION_KEY` (bắt buộc nếu
+muốn xem lại key khách) + `PLATFORM_SERVICE_KEY` (tùy chọn, để đi đường keyed);
+tenant tạo trước session này chưa có key → bấm 重新產生金鑰.
 
 ## 4. Kiến trúc — điểm không được quên
 
