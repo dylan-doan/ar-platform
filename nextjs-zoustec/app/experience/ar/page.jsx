@@ -103,22 +103,16 @@ export default function Page() {
   const hasAr = Boolean(task?.ar_config?.glbUrl);
 
   /** Step 1: a code arrived (scanned or typed). Validate it BEFORE the model
-   * shows — wrong/foreign codes stay on the scan step. The standee wins:
-   * scanning another stop's QR switches to that task. Returns true on accept. */
+   * shows — only THIS stop's own QR unlocks its model; wrong, foreign or
+   * other-stop codes stay on the scan step. Returns true on accept. */
   async function acceptQr({ qr: code, taskId }) {
     if (verifyingRef.current) return false;
     verifyingRef.current = true;
     try {
-      let t = task;
-      if (taskId && taskId !== session.taskId) {
-        try {
-          t = await api(`/api/me/tasks/${taskId}`);
-          session.setTask(taskId);
-          setTask(t);
-        } catch {
-          setScanMsg('這個 QR 不屬於本活動 — 請掃描本活動立牌上的 QR');
-          return false;
-        }
+      const t = task;
+      if (taskId && t && taskId !== t.id) {
+        setScanMsg(`這個 QR 屬於其他站點 — 請掃描「${t.name}」立牌上的 QR`);
+        return false;
       }
       const tNeedsQr = t && (t.verification_type === 'qr' || t.verification_type === 'hybrid');
       if (tNeedsQr) {
