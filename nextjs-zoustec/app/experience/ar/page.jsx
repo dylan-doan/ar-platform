@@ -101,6 +101,9 @@ export default function Page() {
   const needsQr = task && (task.verification_type === 'qr' || task.verification_type === 'hybrid');
   const needsGps = task && (task.verification_type === 'gps' || task.verification_type === 'hybrid');
   const hasAr = Boolean(task?.ar_config?.glbUrl);
+  // Live QR-in-frame state, mirrored from ARStage's status stream.
+  const arLost = arStatus === 'target-lost';
+  const arVisible = arStatus === 'target-found' || arStatus === 'completed';
 
   /** Step 1: a code arrived (scanned or typed). Validate it BEFORE the model
    * shows — only THIS stop's own QR unlocks its model; wrong, foreign or
@@ -152,6 +155,12 @@ export default function Page() {
 
   async function complete() {
     if (busy || !task) return;
+    // AR active → the shutter only works while the mascot is on screen
+    // (camera aimed at the stop's QR); GPS/QR checks alone aren't enough.
+    if (hasAr && arUnlocked && !arVisible) {
+      setError('請先將相機對準立牌上的 QR — 看到 3D 吉祥物後再按下快門');
+      return;
+    }
     setBusy(true); setError('');
     try {
       const payload = {};
@@ -277,8 +286,8 @@ export default function Page() {
   {/* AR status + verify controls */}
   <div style={{position:'relative', padding:'0 20px', marginBottom:'14px', display:'flex', flexDirection:'column', gap:'9px', zIndex:10}}>
     {hasAr && arStatus && (
-      <div style={{alignSelf:'center', display:'inline-flex', alignItems:'center', gap:'8px', padding:'7px 14px', borderRadius:'9999px', background: arDone ? 'rgba(16,185,129,.25)' : 'rgba(0,0,0,.4)', border:`1px solid ${arDone ? 'rgba(16,185,129,.6)' : 'rgba(255,255,255,.2)'}`, color: arDone ? '#6EE7B7' : '#fff', fontSize:'12.5px', fontWeight:'700', backdropFilter:'blur(6px)'}}>
-        {arDone && <span style={{fontSize:'14px', display:'inline-flex', lineHeight:'0'}}><Icon name="circle-check" /></span>}
+      <div style={{alignSelf:'center', display:'inline-flex', alignItems:'center', gap:'8px', padding:'7px 14px', borderRadius:'9999px', background: arLost ? 'rgba(239,68,68,.3)' : arDone ? 'rgba(16,185,129,.25)' : 'rgba(0,0,0,.4)', border:`1px solid ${arLost ? 'rgba(239,68,68,.55)' : arDone ? 'rgba(16,185,129,.6)' : 'rgba(255,255,255,.2)'}`, color: arLost ? '#FECACA' : arDone ? '#6EE7B7' : '#fff', fontSize:'12.5px', fontWeight:'700', backdropFilter:'blur(6px)'}}>
+        {arDone && !arLost && <span style={{fontSize:'14px', display:'inline-flex', lineHeight:'0'}}><Icon name="circle-check" /></span>}
         {AR_STATUS_TEXT[arStatus] || arStatus}
       </div>
     )}
@@ -297,7 +306,7 @@ export default function Page() {
   {/* Controls */}
   <div style={{position:'relative', display:'flex', alignItems:'center', justifyContent:'center', gap:'34px', paddingBottom:'calc(24px + env(safe-area-inset-bottom, 0px))', zIndex:10}}>
     <span style={{width:'46px', height:'46px', borderRadius:'9999px', background:'rgba(0,0,0,.35)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'19px', backdropFilter:'blur(6px)'}}><span style={{display:'inline-flex', lineHeight:'0'}}><Icon name="rotate-3d" /></span></span>
-    <button onClick={complete} disabled={busy || !task} style={{width:'74px', height:'74px', borderRadius:'9999px', background: arDone ? 'var(--success-500)' : '#fff', border:'5px solid rgba(255,255,255,.4)', display:'flex', alignItems:'center', justifyContent:'center', color: arDone ? '#fff' : 'var(--primary-700)', fontSize:'28px', cursor:'pointer', opacity:busy ? .6 : 1}}><span style={{display:'inline-flex', lineHeight:'0'}}><Icon name={busy ? 'loader' : 'camera'} /></span></button>
+    <button onClick={complete} disabled={busy || !task} style={{width:'74px', height:'74px', borderRadius:'9999px', background: arDone && arVisible ? 'var(--success-500)' : '#fff', border:'5px solid rgba(255,255,255,.4)', display:'flex', alignItems:'center', justifyContent:'center', color: arDone && arVisible ? '#fff' : 'var(--primary-700)', fontSize:'28px', cursor:'pointer', opacity: busy || (hasAr && arUnlocked && !arVisible) ? .6 : 1}}><span style={{display:'inline-flex', lineHeight:'0'}}><Icon name={busy ? 'loader' : 'camera'} /></span></button>
     <span style={{width:'46px', height:'46px', borderRadius:'9999px', background:'rgba(0,0,0,.35)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'19px', backdropFilter:'blur(6px)'}}><span style={{display:'inline-flex', lineHeight:'0'}}><Icon name="share-2" /></span></span>
   </div>
 </div>
