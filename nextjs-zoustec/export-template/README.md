@@ -94,8 +94,14 @@ npm start          # 或部署到 Vercel / Render
 自動產生。如遺失可請 Zoustec 於後台再次提供；亦可要求重新產生
 （舊金鑰立即失效，需同步更新 `.env.local`）。
 
-將金鑰填入 `.env.local` 的 `ZOUSTEC_EXPORT_KEY` 即啟用內容自動同步；
-未填時網站以 `data/site.json` 快照運作，功能不受影響。
+金鑰已預先填入 `.env.local` 的 `ZOUSTEC_EXPORT_KEY`，下載後即可直接
+讀取平台即時內容。清空或註解該值時，網站改以 `data/site.json` 快照
+運作，功能不受影響（終端機會印出 `[zoustec] snapshot — …` 提醒）。
+
+> **只改 `.env.local` 這一個檔案。** Next.js 讀取環境變數的優先順序是
+> `.env.local` **高於** `.env` — 若兩個檔案都存在，改了 `.env` 不會生效，
+> 很容易誤判為「沒改到」。本專案只需要 `.env.local`；若目錄下另有 `.env`，
+> 建議直接刪除以免混淆。
 
 金鑰為唯讀，僅能讀取貴公司活動的公開內容（無會員資料、無寫入
 權限），請勿提交到公開的版本庫（`.gitignore` 已排除 `.env.local`）。

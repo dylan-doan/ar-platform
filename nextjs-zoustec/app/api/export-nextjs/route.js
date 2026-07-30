@@ -138,7 +138,9 @@ export async function POST(req) {
     `ZOUSTEC_LIFF_ID=${liffId}`,
     '',
   ].join('\n'));
-  zip.file('.gitignore', ['node_modules/', '.next/', '.env.local', ''].join('\n'));
+  // Ignore every .env variant, not just the one shipped: a stray `.env` copied
+  // by the customer would otherwise commit the API key.
+  zip.file('.gitignore', ['node_modules/', '.next/', '.env', '.env.local', '.env*.local', ''].join('\n'));
 
   const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
   return new NextResponse(buf, {
