@@ -170,6 +170,8 @@ docs đã cập nhật; SSH alias `github-work` giữ nguyên).
 
 | `60362ac` | **Bỏ "standee thắng"** (yêu cầu khách): đang ở trạm nào chỉ QR đúng trạm đó được nhận — quét standee trạm khác KHÔNG auto-chuyển nhiệm vụ nữa mà báo 「這個 QR 屬於其他站點 — 請掃描「{tên trạm}」立牌上的 QR」, 3D giữ khóa; muốn chơi trạm khác phải chọn từ bản đồ hoặc quét QR in bằng camera LINE (deep-link vào thẳng trạm đó) |
 
+| `d72c87d` | **Chụp phải đang thấy 3D**: nhiệm vụ có AR đã mở khóa → nút chụp chỉ nhận khi QR đang trong khung hình (`arVisible` từ status stream ARStage), rời QR bấm chụp = báo 「請先將相機對準立牌上的 QR…」 (chặn kiểu đứng xa dùng GPS đúng vẫn đóng dấu); pill 「QR 已離開畫面」 đổi màu đỏ cảnh báo (hết dính xanh sau khi đạt mốc AR), nút chụp mờ + hết xanh khi mất QR |
+
 Điểm kiến trúc cần nhớ:
 - **`config.puckVersion=2`** = layout mới (stats/tasks là block, admin tự đặt);
   site chưa re-publish giữ layout v1 (stats/tasks cứng). Doc v1 mở trong
