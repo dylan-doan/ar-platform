@@ -65,12 +65,13 @@ async def resolve_domain(domain: str) -> BrandingOut:
 @router.get("/site/{tenant_slug}")
 @router.get("/site/{tenant_slug}/{event_slug}")
 async def public_event_site(tenant_slug: str, event_slug: str | None = None) -> dict:
-    """DEPRECATED — un-keyed alias of GET /api/headless/site/{tenant}/{event}.
+    """Un-keyed alias of GET /api/headless/site/{tenant}/{event}.
 
-    Both customer rendering paths (platform route + exported project) now read
-    the keyed headless endpoint so their payload cannot diverge. This alias
-    stays for older exported bundles and bookmarks; it delegates to the same
-    builder, so the response is identical.
+    Customer sites read the keyed headless endpoint so the platform-hosted and
+    self-hosted paths cannot diverge. This alias delegates to the SAME builder
+    (services/site_payload.py), so the response is byte-identical; it serves
+    older exported bundles, bookmarks, and the platform frontend whenever
+    PLATFORM_SERVICE_KEY is not configured.
     """
     async with platform_admin_session() as session:
         tenant = await resolve_tenant(session, tenant_slug)

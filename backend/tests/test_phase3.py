@@ -385,6 +385,13 @@ async def test_platform_service_key_reads_any_tenant(client, demo, monkeypatch):
                 "/api/headless/site/alpha", headers={"X-Export-Key": "svc_test_ke"}
             )
         ).status_code == 401
+        # The frontend's fallback route (used when no service key is configured)
+        # must stay byte-identical to the keyed one — a customer site we host
+        # renders the same either way.
+        keyed = await client.get(
+            "/api/headless/site/alpha", headers={"X-Export-Key": "svc_test_key"}
+        )
+        assert keyed.json() == (await client.get("/api/public/site/alpha")).json()
     finally:
         get_settings.cache_clear()
 

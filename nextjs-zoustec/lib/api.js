@@ -71,21 +71,25 @@ export async function publicGet(path) {
 /**
  * GET the event-website payload for a customer site we host.
  *
- * Deliberately the SAME keyed endpoint the exported Next.js project calls, so
- * a customer's site renders identically whether it runs here or on their own
- * server. PLATFORM_SERVICE_KEY is our first-party credential (any tenant — the
- * slug in the path selects one); it is never handed to a customer.
+ * Prefers the SAME keyed endpoint the exported Next.js project calls, so a
+ * customer's site takes an identical code path whether it runs here or on their
+ * own server. PLATFORM_SERVICE_KEY is our first-party credential (valid for any
+ * tenant — the slug in the path selects one); it is never handed to a customer.
  *
  * @param tenant tenant slug
  * @param event  event slug, or undefined for the domain root (the tenant's
  *   homepage rule then decides: single event, pinned event, or landing list)
  */
 export async function siteGet(tenant, event) {
-  const path = event
-    ? `/api/headless/site/${tenant}/${encodeURIComponent(event)}`
-    : `/api/headless/site/${tenant}`;
-  return apiFetch(path, {
-    headers: { 'x-export-key': process.env.PLATFORM_SERVICE_KEY || '' },
+  const suffix = event ? `/${tenant}/${encodeURIComponent(event)}` : `/${tenant}`;
+  const serviceKey = process.env.PLATFORM_SERVICE_KEY;
+  // Without a service key configured, use the un-keyed alias rather than
+  // failing: both routes build the payload from the same module
+  // (app/services/site_payload.py), so the rendered site is identical. This
+  // keeps customer sites serving on deploys where the env var is not set yet.
+  if (!serviceKey) return apiFetch(`/api/public/site${suffix}`);
+  return apiFetch(`/api/headless/site${suffix}`, {
+    headers: { 'x-export-key': serviceKey },
   });
 }
 
