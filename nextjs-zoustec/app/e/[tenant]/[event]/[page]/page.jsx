@@ -14,8 +14,10 @@ function linkBase(tenant) {
   return host && !PLATFORM_HOSTS.test(host) ? '' : `/e/${tenant}`;
 }
 
+/** A page that exists is reachable even before any block is dropped into it —
+ * an empty page renders as empty chrome, not a 404. */
 function findPage(site, slug) {
-  return (site?.event?.config?.pages || []).find((p) => p.slug === slug && p.data?.content?.length);
+  return (site?.event?.config?.pages || []).find((p) => p.slug === slug);
 }
 
 export async function generateMetadata({ params }) {

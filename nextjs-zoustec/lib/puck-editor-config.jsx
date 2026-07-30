@@ -189,6 +189,9 @@ const resolvedComponents = resolveComponents(siteConfig.components);
 
 export const editorConfig = {
   ...siteConfig,
+  // 頁首／頁尾 blocks are composed in their own documents, not dropped into
+  // the home page body — the group is re-added by editorChromeConfig.
+  categories: Object.fromEntries(Object.entries(siteConfig.categories).filter(([k]) => k !== 'chrome')),
   components: resolvedComponents,
   root: {
     label: '活動設定',
@@ -221,5 +224,14 @@ export const editorConfig = {
  * site settings live on the home page document. */
 export const editorSubPageConfig = {
   ...editorConfig,
+  root: siteConfig.root,
+};
+
+/** 頁首／頁尾 documents: only the chrome blocks are offered, and the canvas
+ * has no page padding so the header/footer render edge-to-edge as they do on
+ * the public site. */
+export const editorChromeConfig = {
+  ...editorConfig,
+  categories: { chrome: siteConfig.categories.chrome },
   root: siteConfig.root,
 };

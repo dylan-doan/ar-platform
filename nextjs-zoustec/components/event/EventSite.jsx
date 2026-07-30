@@ -22,7 +22,7 @@ import { Icon } from '../Icon';
 import EventSections from './EventSections';
 import JoinCta from './JoinCta';
 import { brandPalette } from '../../lib/brand';
-import { siteConfig, themeStyles } from '../../lib/site-blocks';
+import { chromeDoc, siteConfig, themeStyles } from '../../lib/site-blocks';
 
 /** LIFF app that the CTA/QR opens.
  *
@@ -55,9 +55,13 @@ export function siteJoinHref(site) {
     : `/experience/login?${query}`;
 }
 
-/** Sub-pages shown in the site nav (multipage: event.config.pages). */
+/** Sub-pages shown in the site nav (multipage: event.config.pages).
+ *
+ * A page with no blocks yet still counts — it was created on purpose and the
+ * admin ticked 顯示於網站選單, so hiding it reads as "the builder lost my page".
+ * It renders as an empty page inside the site chrome until blocks are added. */
 export function navPages(event) {
-  return (event.config?.pages || []).filter((p) => p.nav !== false && p.data?.content?.length);
+  return (event.config?.pages || []).filter((p) => p?.slug && p.nav !== false);
 }
 
 /** Site-wide settings live on the HOME document's root props (set in the
@@ -70,19 +74,53 @@ export function siteTheme(event) {
   return siteRoot(event).theme || 'default';
 }
 
-/** Nav items: the hand-made menu wins; otherwise auto-list the sub-pages.
- * Menu links accept a sub-page slug or a full URL. */
+/** Nav items: the hand-made menu first, then any sub-page it does not already
+ * cover. Menu links accept a sub-page slug or a full URL.
+ *
+ * The manual menu used to REPLACE the auto list, so on a site whose template
+ * ships a menu every page added later silently never appeared. Appending the
+ * uncovered pages keeps hand-ordering while making a new page show up. */
 export function siteNav(event, eventHref) {
-  const menu = (siteRoot(event).menu || []).filter((m) => m?.label);
-  if (menu.length) {
-    return menu.map((m) => {
-      const link = String(m.link || '').trim();
-      if (/^https?:\/\//i.test(link)) return { label: m.label, href: link, external: true };
-      const slug = link.replace(/^\//, '');
-      return { label: m.label, href: slug ? `${eventHref}/${slug}` : eventHref, slug };
-    });
-  }
-  return navPages(event).map((p) => ({ label: p.title, href: `${eventHref}/${p.slug}`, slug: p.slug }));
+  const menu = (siteRoot(event).menu || []).filter((m) => m?.label).map((m) => {
+    const link = String(m.link || '').trim();
+    if (/^https?:\/\//i.test(link)) return { label: m.label, href: link, external: true };
+    const slug = link.replace(/^\//, '');
+    return { label: m.label, href: slug ? `${eventHref}/${slug}` : eventHref, slug };
+  });
+  const covered = new Set(menu.map((m) => m.slug).filter(Boolean));
+  const auto = navPages(event)
+    .filter((p) => !covered.has(p.slug))
+    .map((p) => ({ label: p.title || p.slug, href: `${eventHref}/${p.slug}`, slug: p.slug }));
+  return [...menu, ...auto];
+}
+
+/** Metadata handed to the chrome documents so the header/footer blocks can
+ * render the live menu, brand and CTA without recomputing any of it. */
+export function chromeMeta(site, { nav, eventHref, joinHref, currentSlug }) {
+  return {
+    event: site.event,
+    tasks: site.tasks,
+    branding: site.branding,
+    nav,
+    eventHref,
+    joinHref,
+    currentSlug: currentSlug || null,
+  };
+}
+
+/** Admin-designed 頁首 — null when none exists, so the caller falls back to
+ * the built-in chrome and existing sites look unchanged. */
+export function SiteHeader({ site, meta }) {
+  const doc = chromeDoc(site.event, 'header');
+  if (!doc) return null;
+  return <Render config={siteConfig} data={doc} metadata={meta} />;
+}
+
+/** Admin-designed 頁尾 — same fallback contract as SiteHeader. */
+export function SiteFooter({ site, meta }) {
+  const doc = chromeDoc(site.event, 'footer');
+  if (!doc) return null;
+  return <Render config={siteConfig} data={doc} metadata={meta} />;
 }
 
 /** Site-wide custom CSS (WordPress "Additional CSS" equivalent). CSS cannot
@@ -116,6 +154,10 @@ export default function EventSite({ site, linkBase }) {
   const eventHref = `${base}/${event.slug}`;
   const nav = siteNav(event, eventHref);
   const hideHero = v2 && siteRoot(event).hideHero === 'hide';
+  // An admin-designed 頁首／頁尾 replaces the built-in chrome site-wide.
+  const meta = chromeMeta(site, { nav, eventHref, joinHref });
+  const customHeader = chromeDoc(event, 'header');
+  const customFooter = chromeDoc(event, 'footer');
 
   const navLinks = nav.map((it) => it.external
     ? <a key={it.href} href={it.href} target="_blank" rel="noreferrer" style={{padding:'6px 12px', borderRadius:'9999px', color:'rgba(255,255,255,.92)', fontSize:'12.5px', fontWeight:'600', textDecoration:'none', background:'rgba(255,255,255,.1)'}}>{it.label}</a>
@@ -125,7 +167,12 @@ export default function EventSite({ site, linkBase }) {
 <div className="page-full" style={{ '--brand': p.brand, '--brand-dark': p.dark, '--brand-light': p.light, '--brand-hero-a': p.heroA, '--brand-hero-b': p.heroB, background: 'var(--surface-app)', display:'flex', flexDirection:'column', ...theme.vars, ...theme.page }}>
   <CustomCss event={event} />
 
-  {hideHero ? (
+  {/* Admin-designed 頁首 — sits above the hero, or replaces the slim header. */}
+  <SiteHeader site={site} meta={meta} />
+
+  {/* Slim header is pure chrome, so a custom 頁首 replaces it outright; the
+      hero also carries content (title/CTA) and stays either way. */}
+  {hideHero && customHeader ? null : hideHero ? (
   /* ── Slim header (預設 Hero hidden — admin builds their own Banner) ── */
   <div style={{background: `linear-gradient(135deg, ${p.heroA}, ${p.heroB})`, color:'#fff'}}>
     <div style={{...WRAP, display:'flex', alignItems:'center', gap:'10px', paddingTop:'14px', paddingBottom:'14px', flexWrap:'wrap'}}>
@@ -150,8 +197,8 @@ export default function EventSite({ site, linkBase }) {
         ? <img src={branding.logo_url} alt={branding.tenant_name} style={{width:'32px', height:'32px', borderRadius:'9px', objectFit:'cover', background:'#fff'}} />
         : <span style={{width:'30px', height:'30px', borderRadius:'8px', background:'rgba(255,255,255,.16)', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:'16px'}}><Icon name="scan-line" /></span>}
       <span style={{fontSize:'14px', fontWeight:'700'}}>{branding.tenant_name}</span>
-      {/* Site nav — hand-made menu or auto sub-page list */}
-      {nav.length > 0 && (
+      {/* Site nav — skipped when the admin's own 頁首 already shows it */}
+      {nav.length > 0 && !customHeader && (
         <nav style={{display:'flex', alignItems:'center', gap:'4px', marginLeft:'14px', flexWrap:'wrap'}}>{navLinks}</nav>
       )}
       <span style={{marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:'6px', fontSize:'11px', fontWeight:'600', background:'rgba(255,255,255,.14)', padding:'6px 11px', borderRadius:'9999px', backdropFilter:'blur(4px)'}}><span style={{width:'7px', height:'7px', borderRadius:'50%', background:'#28C840'}}></span>進行中</span>
@@ -240,10 +287,12 @@ export default function EventSite({ site, linkBase }) {
     )}
   </div>
 
-  {/* ── Footer ───────────────────────────────────────────────────────── */}
+  {/* ── Footer — admin-designed 頁尾 wins over the built-in one ──────── */}
+  {customFooter ? <SiteFooter site={site} meta={meta} /> : (
   <div style={{padding:'16px', textAlign:'center', borderTop:'1px solid var(--border-subtle)', fontSize:'11.5px', color:'var(--text-subtle)', background:'#fff'}}>
     © {branding.tenant_name}{branding.show_powered_by && <> · Powered by <span style={{fontWeight:'700'}}>Zoustec</span></>}
   </div>
+  )}
 </div>
   );
 }

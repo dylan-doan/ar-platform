@@ -13,8 +13,8 @@ import { Render } from '@measured/puck/rsc';
 import { Icon } from '../Icon';
 import JoinCta from './JoinCta';
 import { brandPalette } from '../../lib/brand';
-import { siteConfig, themeStyles } from '../../lib/site-blocks';
-import { CustomCss, siteJoinHref, siteNav, siteRoot, siteTheme } from './EventSite';
+import { chromeDoc, siteConfig, themeStyles } from '../../lib/site-blocks';
+import { chromeMeta, CustomCss, SiteFooter, SiteHeader, siteJoinHref, siteNav, siteRoot, siteTheme } from './EventSite';
 
 const WRAP = { maxWidth: '1140px', width: '100%', margin: '0 auto', padding: '0 clamp(16px, 4vw, 26px)' };
 
@@ -29,12 +29,23 @@ export default function EventSubPage({ site, page, linkBase }) {
   // The home theme (incl. customizer values) forced onto this page's root —
   // one theme for the whole site.
   const data = { ...page.data, root: { ...(page.data?.root || {}), props: { ...(page.data?.root?.props || {}), theme: siteTheme(event), themeCustom: siteRoot(event).themeCustom } } };
+  // An admin-designed 頁首／頁尾 replaces the built-in chrome site-wide.
+  const meta = chromeMeta(site, { nav, eventHref, joinHref, currentSlug: page.slug });
+  const customHeader = chromeDoc(event, 'header');
+  const customFooter = chromeDoc(event, 'footer');
+  // A page can exist before any block is dropped in — say so instead of
+  // rendering a blank strip between the header and the footer.
+  const empty = !data?.content?.length;
 
   return (
 <div className="page-full" style={{ '--brand': p.brand, '--brand-dark': p.dark, '--brand-light': p.light, background: 'var(--surface-app)', display: 'flex', flexDirection: 'column', ...theme.vars, ...theme.page }}>
   <CustomCss event={event} />
 
-  {/* ── Compact brand header + nav ───────────────────────────────────── */}
+  {/* Admin-designed 頁首 — replaces the compact brand header below. */}
+  <SiteHeader site={site} meta={meta} />
+
+  {/* ── Compact brand header + nav (built-in fallback) ───────────────── */}
+  {!customHeader && (
   <div style={{background: `linear-gradient(135deg, ${p.heroA}, ${p.heroB})`, color: '#fff'}}>
     <div style={{...WRAP, display:'flex', alignItems:'center', gap:'10px', paddingTop:'14px', paddingBottom:'14px', flexWrap:'wrap'}}>
       <Link href={eventHref} style={{display:'flex', alignItems:'center', gap:'10px', color:'#fff', textDecoration:'none'}}>
@@ -54,16 +65,21 @@ export default function EventSubPage({ site, page, linkBase }) {
       </div>
     </div>
   </div>
+  )}
 
   {/* ── Page content (Puck document) ─────────────────────────────────── */}
   <div style={{...WRAP, flex:'1', paddingTop:'26px', paddingBottom:'40px'}}>
-    <Render config={siteConfig} data={data} metadata={{ event, tasks }} />
+    {empty
+      ? <div style={{padding:'46px 20px', textAlign:'center', color:'var(--text-subtle)', fontSize:'13px'}}>此頁面尚未加入內容。</div>
+      : <Render config={siteConfig} data={data} metadata={{ event, tasks }} />}
   </div>
 
-  {/* ── Footer ───────────────────────────────────────────────────────── */}
+  {/* ── Footer — admin-designed 頁尾 wins over the built-in one ──────── */}
+  {customFooter ? <SiteFooter site={site} meta={meta} /> : (
   <div style={{padding:'16px', textAlign:'center', borderTop:'1px solid var(--border-subtle)', fontSize:'11.5px', color:'var(--text-subtle)', background:'#fff'}}>
     © {branding.tenant_name}{branding.show_powered_by && <> · Powered by <span style={{fontWeight:'700'}}>Zoustec</span></>}
   </div>
+  )}
 </div>
   );
 }

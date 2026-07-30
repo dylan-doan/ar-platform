@@ -474,6 +474,119 @@ function DividerBlock() {
   return <hr style={{ border: 'none', borderTop: '1px solid var(--border-subtle)', margin: '8px 0' }} />;
 }
 
+/* ── Site chrome blocks (頁首／頁尾) ───────────────────────────────────
+ * Composed once in their own documents (event.config.header / .footer) and
+ * rendered on EVERY page, so a change lands site-wide. They read the nav from
+ * metadata (siteNav output) rather than recomputing it, keeping the menu
+ * identical to the structural chrome they replace. */
+
+/** Brand mark + menu bar. The menu comes from the site nav, so pages added in
+ * the designer appear here with no extra wiring. */
+function SiteHeaderBlock({ logo, title, sticky, background, bgColor, textColor, showJoin, joinLabel, puck }) {
+  const m = puck?.metadata || {};
+  const nav = m.nav || [];
+  const home = m.eventHref || '#';
+  const brand = title || m.event?.name || '';
+  const img = logo || m.branding?.logo_url || '';
+  const BG = {
+    brand: 'linear-gradient(135deg, var(--brand-hero-a, #0E7490), var(--brand-hero-b, #155E75))',
+    dark: '#16323E',
+    light: 'var(--site-card-bg, #fff)',
+  };
+  const bg = background === 'custom' && bgColor ? bgColor : (BG[background] || BG.brand);
+  const fg = textColor || (background === 'light' ? 'var(--text-strong, #16323E)' : '#fff');
+  const pill = background === 'light' ? 'var(--surface-sunken)' : 'rgba(255,255,255,.12)';
+  return (
+    <div style={{ background: bg, color: fg, ...(sticky === 'sticky' ? { position: 'sticky', top: 0, zIndex: 30 } : null), borderBottom: background === 'light' ? '1px solid var(--border-subtle)' : 'none' }}>
+      <div style={{ maxWidth: '1140px', margin: '0 auto', padding: '12px clamp(16px, 4vw, 26px)', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <a href={home} style={{ display: 'flex', alignItems: 'center', gap: '9px', color: 'inherit', textDecoration: 'none' }}>
+          {img
+            ? <img src={img} alt={brand} style={{ width: '30px', height: '30px', borderRadius: '8px', objectFit: 'cover', background: '#fff' }} />
+            : <span style={{ width: '28px', height: '28px', borderRadius: '7px', background: pill, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px' }}><Icon name="scan-line" /></span>}
+          <span style={{ fontSize: '14px', fontWeight: 700 }}>{brand}</span>
+        </a>
+        {nav.length > 0 && (
+          <nav style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '8px', flexWrap: 'wrap' }}>
+            {nav.map((it) => (
+              <a key={it.href} href={it.href} {...(it.external ? { target: '_blank', rel: 'noreferrer' } : null)}
+                style={{ padding: '6px 12px', borderRadius: '9999px', color: 'inherit', fontSize: '12.5px', fontWeight: 600, textDecoration: 'none', background: it.slug && it.slug === m.currentSlug ? 'rgba(255,255,255,.22)' : pill }}>{it.label}</a>
+            ))}
+          </nav>
+        )}
+        {showJoin !== 'hide' && m.joinHref && (
+          <a href={m.joinHref} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '9px 18px', borderRadius: 'var(--site-btn-radius, 9999px)', background: background === 'light' ? 'var(--brand, var(--primary-600))' : '#fff', color: background === 'light' ? '#fff' : 'var(--brand-dark, #134E61)', fontSize: '13px', fontWeight: 800, textDecoration: 'none' }}>
+            <span style={{ fontSize: '15px', display: 'inline-flex', lineHeight: 0 }}><Icon name="qr-code" /></span>{joinLabel || '開始旅程'}
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Multi-column footer + copyright line. `links` are free-form so the admin
+ * can point at sub-pages (relative) or anything external. */
+function SiteFooterBlock({ about, columns, copyright, background, bgColor, textColor, showNav, puck }) {
+  const m = puck?.metadata || {};
+  const cols = (columns || []).filter((c) => c?.title || (c?.links || []).length);
+  const BG = { dark: '#16323E', light: 'var(--site-card-bg, #fff)', tint: 'var(--surface-sunken)' };
+  const bg = background === 'custom' && bgColor ? bgColor : (BG[background] || BG.light);
+  const dark = background === 'dark' || (background === 'custom' && !textColor);
+  const fg = textColor || (dark ? 'rgba(255,255,255,.82)' : 'var(--text-body)');
+  const strong = dark ? '#fff' : 'var(--text-strong)';
+  const linkStyle = { color: fg, fontSize: '12.5px', textDecoration: 'none', lineHeight: 2 };
+  const nav = showNav === 'hide' ? [] : (m.nav || []);
+  return (
+    <div style={{ background: bg, color: fg, borderTop: dark ? 'none' : '1px solid var(--border-subtle)' }}>
+      <div style={{ maxWidth: '1140px', margin: '0 auto', padding: 'clamp(24px, 4vw, 40px) clamp(16px, 4vw, 26px) 20px' }}>
+        {(about || cols.length > 0 || nav.length > 0) && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '26px', marginBottom: '22px' }}>
+            {about && (
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: strong, marginBottom: '9px' }}>{m.event?.name || ''}</div>
+                <div style={{ fontSize: '12.5px', lineHeight: 1.7, maxWidth: '38ch' }}>{about}</div>
+              </div>
+            )}
+            {nav.length > 0 && (
+              <div>
+                <div style={{ fontSize: '12.5px', fontWeight: 800, color: strong, marginBottom: '6px' }}>網站導覽</div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {nav.map((it) => (
+                    <a key={it.href} href={it.href} {...(it.external ? { target: '_blank', rel: 'noreferrer' } : null)} style={linkStyle}>{it.label}</a>
+                  ))}
+                </div>
+              </div>
+            )}
+            {cols.map((c, i) => (
+              <div key={i}>
+                {c.title && <div style={{ fontSize: '12.5px', fontWeight: 800, color: strong, marginBottom: '6px' }}>{c.title}</div>}
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {(c.links || []).filter((l) => l?.label).map((l, j) => (
+                    l.href
+                      ? <a key={j} href={l.href} {...(/^https?:\/\//i.test(l.href) ? { target: '_blank', rel: 'noreferrer' } : null)} style={linkStyle}>{l.label}</a>
+                      : <span key={j} style={{ ...linkStyle, opacity: .9 }}>{l.label}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ paddingTop: '14px', borderTop: `1px solid ${dark ? 'rgba(255,255,255,.14)' : 'var(--border-subtle)'}`, fontSize: '11.5px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <span>{copyright || `© ${m.branding?.tenant_name || ''}`}</span>
+          {m.branding?.show_powered_by && <span style={{ marginLeft: 'auto' }}>Powered by <span style={{ fontWeight: 700 }}>Zoustec</span></span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The site-wide chrome documents (composed in the designer's 頁首／頁尾
+ * tabs). Empty/absent means "keep the built-in chrome", so existing sites
+ * are untouched until an admin actually designs one. */
+export function chromeDoc(event, which) {
+  const doc = event?.config?.[which];
+  return doc?.content?.length ? doc : null;
+}
+
 /* ── Shared Puck config (editor + RSC render) ─────────────────────────── */
 
 export const siteConfig = {
@@ -482,8 +595,49 @@ export const siteConfig = {
     content: { title: '內容', components: ['Heading', 'Paragraph', 'TextCard', 'Notice', 'InfoList', 'Places'] },
     media: { title: '媒體與按鈕', components: ['Banner', 'Image', 'Button'] },
     layout: { title: '版面', components: ['Columns', 'Spacer', 'Divider'] },
+    chrome: { title: '頁首／頁尾（全站共用）', components: ['SiteHeader', 'SiteFooter'] },
   },
   components: {
+    SiteHeader: {
+      label: '頁首 Header（全站共用）',
+      fields: {
+        logo: imageText('Logo（留空＝用品牌設定的 Logo）'),
+        title: { type: 'text', label: '標題文字（留空＝活動名稱）' },
+        background: { type: 'select', label: '背景', options: [{ label: '品牌漸層', value: 'brand' }, { label: '深色', value: 'dark' }, { label: '淺色', value: 'light' }, { label: '自訂顏色', value: 'custom' }] },
+        bgColor: colorText('自訂背景色'),
+        textColor: colorText('文字顏色（留空＝自動）'),
+        sticky: { type: 'radio', label: '捲動時固定', options: [{ label: '否', value: '' }, { label: '固定於頂端', value: 'sticky' }] },
+        showJoin: { type: 'radio', label: '參加按鈕', options: [{ label: '顯示', value: '' }, { label: '隱藏', value: 'hide' }] },
+        joinLabel: { type: 'text', label: '參加按鈕文字' },
+      },
+      defaultProps: { logo: '', title: '', background: 'brand', bgColor: '', textColor: '', sticky: '', showJoin: '', joinLabel: '開始旅程' },
+      render: SiteHeaderBlock,
+    },
+    SiteFooter: {
+      label: '頁尾 Footer（全站共用）',
+      fields: {
+        about: { type: 'textarea', label: '簡介文字（留空隱藏）' },
+        showNav: { type: 'radio', label: '網站導覽欄', options: [{ label: '顯示', value: '' }, { label: '隱藏', value: 'hide' }] },
+        columns: {
+          type: 'array', label: '欄位（例：聯絡資訊／社群）',
+          arrayFields: {
+            title: { type: 'text', label: '欄位標題' },
+            links: {
+              type: 'array', label: '項目',
+              arrayFields: { label: { type: 'text', label: '文字' }, href: { type: 'text', label: '連結（留空＝純文字）' } },
+              getItemSummary: (it) => it?.label || '項目',
+            },
+          },
+          getItemSummary: (it) => it?.title || '欄位',
+        },
+        copyright: { type: 'text', label: '版權文字（留空＝© 主辦方名稱）' },
+        background: { type: 'select', label: '背景', options: [{ label: '淺色', value: 'light' }, { label: '深色', value: 'dark' }, { label: '卡片色', value: 'tint' }, { label: '自訂顏色', value: 'custom' }] },
+        bgColor: colorText('自訂背景色'),
+        textColor: colorText('文字顏色（留空＝自動）'),
+      },
+      defaultProps: { about: '', showNav: '', columns: [], copyright: '', background: 'light', bgColor: '', textColor: '' },
+      render: SiteFooterBlock,
+    },
     StatsBand: withStyle({
       label: '數據看板（任務／門檻／獎勵）',
       fields: {},

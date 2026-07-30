@@ -22,7 +22,7 @@ import { Puck, Render, createUsePuck } from '@measured/puck';
 import '@measured/puck/puck.css';
 import { Icon } from '../../../../components/Icon';
 import { adminApi, adminSession, AuthRequired, loginUrl } from '../../../../lib/admin-client';
-import { editorConfig, editorSubPageConfig } from '../../../../lib/puck-editor-config';
+import { editorChromeConfig, editorConfig, editorSubPageConfig } from '../../../../lib/puck-editor-config';
 import { sectionsToPuckData, siteConfig, THEMES, themeStyles, upgradePuckDoc } from '../../../../lib/site-blocks';
 import { SITE_TEMPLATES, TEMPLATE_CATS, applyTemplate } from '../../../../lib/site-templates';
 import { DEFAULT_SECTIONS } from '../../../../lib/event-sections';
@@ -30,8 +30,22 @@ import { DEFAULT_SECTIONS } from '../../../../lib/event-sections';
 const TENANT = process.env.NEXT_PUBLIC_TENANT_SLUG || 'taipei';
 const usePuck = createUsePuck();
 const HOME = '__home__';
+// Site-wide chrome documents — edited like a page, rendered on every page.
+const HEADER = '__header__';
+const FOOTER = '__footer__';
+const CHROME = { [HEADER]: 'header', [FOOTER]: 'footer' };
 
 const EMPTY_DOC = { root: { props: { theme: 'default' } }, content: [], zones: {} };
+
+/** A chrome document pre-filled with its block, so 頁首／頁尾 starts usable
+ * instead of as an empty canvas the admin has to discover how to fill. */
+function starterChrome(which) {
+  const type = which === 'header' ? 'SiteHeader' : 'SiteFooter';
+  const props = which === 'header'
+    ? { id: 'site-header', logo: '', title: '', background: 'brand', bgColor: '', textColor: '', sticky: '', showJoin: '', joinLabel: '開始旅程' }
+    : { id: 'site-footer', about: '', showNav: '', columns: [], copyright: '', background: 'light', bgColor: '', textColor: '' };
+  return { root: { props: {} }, content: [{ type, props }], zones: {} };
+}
 
 // Sample data so template previews show believable smart blocks.
 const PREVIEW_META = {
@@ -99,7 +113,8 @@ export default function Page() {
   const [tasks, setTasks] = useState([]); // metadata for the live smart blocks
   const [homeDoc, setHomeDoc] = useState(null); // initial home document
   const [pages, setPages] = useState([]); // [{slug, title, nav, data}]
-  const [cur, setCur] = useState(HOME); // HOME or a page slug
+  const [chrome, setChrome] = useState({ header: null, footer: null }); // site-wide
+  const [cur, setCur] = useState(HOME); // HOME, HEADER, FOOTER or a page slug
   const [newTitle, setNewTitle] = useState('');
   const [tplModal, setTplModal] = useState(false);
   const [tplCat, setTplCat] = useState('all'); // store category filter
@@ -143,6 +158,7 @@ export default function Page() {
         } } };
         setHomeDoc(home);
         setPages(ev.config?.pages || []);
+        setChrome({ header: ev.config?.header || null, footer: ev.config?.footer || null });
         try {
           const b = await adminApi('/api/admin/branding');
           if (b.tenant_slug) setTenant(b.tenant_slug);
@@ -161,7 +177,18 @@ export default function Page() {
   function docFor(key) {
     if (draftsRef.current[key]) return draftsRef.current[key];
     if (key === HOME) return homeDoc;
+    if (CHROME[key]) return chrome[CHROME[key]] || starterChrome(CHROME[key]);
     return pages.find((p) => p.slug === key)?.data || EMPTY_DOC;
+  }
+
+  /** Chrome as it would be saved right now — an emptied document is stored as
+   * null so the site falls back to the built-in header/footer. */
+  function currentChrome() {
+    const pick = (key) => {
+      const d = draftsRef.current[key] ?? chrome[CHROME[key]];
+      return d?.content?.length ? d : null;
+    };
+    return { header: pick(HEADER), footer: pick(FOOTER) };
   }
 
   function addPage() {
@@ -178,7 +205,11 @@ export default function Page() {
     // template only replaces layout + theme + sub-pages.
     const rp = (draftsRef.current[HOME] || homeDoc)?.root?.props || {};
     const { home, pages: tplPages } = applyTemplate(tpl, rp, themeKey);
-    draftsRef.current = {};
+    // A template swaps layout + sub-pages only; the site-wide 頁首／頁尾 is the
+    // admin's own, so keep its unsaved edits instead of dropping them.
+    draftsRef.current = Object.fromEntries(
+      [HEADER, FOOTER].filter((k) => draftsRef.current[k]).map((k) => [k, draftsRef.current[k]]),
+    );
     setHomeDoc(home);
     setPages(tplPages);
     setCur(HOME);
@@ -198,6 +229,7 @@ export default function Page() {
     return {
       puck: draftsRef.current[HOME] || homeDoc,
       pages: pages.map((p) => ({ ...p, data: draftsRef.current[p.slug] || p.data })),
+      ...currentChrome(),
     };
   }
 
@@ -256,6 +288,8 @@ export default function Page() {
         });
         walk(puck.content);
         inPages.forEach((p) => walk(p?.data?.content));
+        walk(cfg?.header?.content);
+        walk(cfg?.footer?.content);
         // Event-owned basics stay this event's own — only design travels.
         const home = { ...puck, root: { ...(puck.root || {}), props: {
           ...(puck.root?.props || {}),
@@ -269,6 +303,7 @@ export default function Page() {
         draftsRef.current = {};
         setHomeDoc(home);
         setPages(inPages.map((p) => ({ slug: p.slug, title: p.title, nav: p.nav !== false, data: p.data })));
+        setChrome({ header: cfg?.header || null, footer: cfg?.footer || null });
         setCur(HOME);
         setRev((r) => r + 1);
         setFlash('已匯入設計 — 按「儲存並發佈」生效'); setTimeout(() => setFlash(''), 3500);
@@ -285,6 +320,7 @@ export default function Page() {
       draftsRef.current[cur] = currentDoc;
       const home = draftsRef.current[HOME] || homeDoc;
       const outPages = pages.map((p) => ({ ...p, data: draftsRef.current[p.slug] || p.data }));
+      const outChrome = currentChrome();
       // Event basics come off the root panel; clamp the reward threshold to
       // the task count (a higher one can never be reached).
       const rp = home.root?.props || {};
@@ -303,12 +339,13 @@ export default function Page() {
           description: rp.description || '',
           reward_name: rp.rewardName || '',
           reward_threshold: threshold,
-          config: { ...(event.config || {}), heroImage: rp.heroImage || undefined, puck: home, pages: outPages, puckVersion: 2 },
+          config: { ...(event.config || {}), heroImage: rp.heroImage || undefined, puck: home, pages: outPages, header: outChrome.header, footer: outChrome.footer, puckVersion: 2 },
         },
       });
       setEvent(updated);
       setHomeDoc(home);
       setPages(outPages);
+      setChrome(outChrome);
       setFlash('已儲存 ✓'); setTimeout(() => setFlash(''), 2500);
     } catch (e) {
       if (e instanceof AuthRequired) return router.replace(loginUrl('/admin/builder/design'));
@@ -323,8 +360,14 @@ export default function Page() {
     return <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>載入中…</div>;
   }
 
-  const curPage = cur === HOME ? null : pages.find((p) => p.slug === cur);
-  const publicUrl = cur === HOME ? `/e/${tenant}/${event.slug}` : `/e/${tenant}/${event.slug}/${cur}`;
+  const curPage = CHROME[cur] ? null : (cur === HOME ? null : pages.find((p) => p.slug === cur));
+  const CHROME_LABEL = { [HEADER]: '頁首 Header', [FOOTER]: '頁尾 Footer' };
+  // What the live nav will look like — so the 頁首／頁尾 canvas shows the real
+  // menu instead of an empty bar while it is being designed.
+  const navPreview = pages.filter((p) => p.nav !== false).map((p) => ({ label: p.title || p.slug, href: '#', slug: p.slug }));
+  const docLabel = CHROME_LABEL[cur] || (curPage ? curPage.title : '首頁');
+  // Chrome documents have no URL of their own — preview them on the home page.
+  const publicUrl = cur === HOME || CHROME[cur] ? `/e/${tenant}/${event.slug}` : `/e/${tenant}/${event.slug}/${cur}`;
 
   const railItem = (active) => ({ display: 'flex', alignItems: 'center', gap: '7px', padding: '9px 10px', borderRadius: '9px', cursor: 'pointer', border: active ? '1.5px solid var(--primary-600)' : '1px solid var(--border-subtle)', background: active ? 'var(--primary-50)' : '#fff', fontSize: '12.5px', fontWeight: 600, color: 'var(--text-strong)' });
 
@@ -355,6 +398,23 @@ export default function Page() {
           <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addPage()} placeholder="新頁面名稱…" style={{ flex: 1, minWidth: 0, height: '30px', border: '1px solid var(--border-default)', borderRadius: '7px', padding: '0 8px', fontSize: '12px', outline: 'none' }} />
           <button onClick={addPage} disabled={!newTitle.trim()} title="新增頁面" style={{ width: '30px', height: '30px', borderRadius: '7px', background: 'var(--primary-600)', color: '#fff', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px' }}><Icon name="plus" /></button>
         </div>
+
+        {/* Site-wide chrome — one header/footer shared by every page */}
+        <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-subtle)', margin: '10px 4px 4px' }}>全站共用</div>
+        {[HEADER, FOOTER].map((k) => (
+          <div key={k} onClick={() => setCur(k)} style={railItem(cur === k)}>
+            <span style={{ fontSize: '14px', color: 'var(--primary-600)', display: 'inline-flex', lineHeight: 0 }}><Icon name={k === HEADER ? 'panel-top' : 'panel-bottom'} /></span>
+            <span style={{ flex: 1 }}>{CHROME_LABEL[k]}</span>
+            {(draftsRef.current[k]?.content?.length ?? chrome[CHROME[k]]?.content?.length) > 0 && (
+              <span style={{ fontSize: '9.5px', fontWeight: 700, color: 'var(--primary-700)', background: 'var(--primary-50)', padding: '2px 6px', borderRadius: '9999px' }}>已啟用</span>
+            )}
+          </div>
+        ))}
+        {CHROME[cur] && (
+          <div style={{ padding: '9px 10px', borderRadius: '9px', background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', fontSize: '10.5px', color: 'var(--text-subtle)', lineHeight: 1.6 }}>
+            此設計會套用到<strong>所有頁面</strong>。選單會自動列出頁面，無需手動加入。清空區塊即恢復系統預設樣式。
+          </div>
+        )}
 
         {/* Per-page settings (title / nav) for the selected sub-page */}
         {curPage && (
@@ -393,12 +453,12 @@ export default function Page() {
       <div style={{ flex: 1, minWidth: 0 }}>
         <Puck
           key={`${cur}:${rev}`}
-          config={cur === HOME ? editorConfig : editorSubPageConfig}
+          config={CHROME[cur] ? editorChromeConfig : (cur === HOME ? editorConfig : editorSubPageConfig)}
           data={docFor(cur)}
           onChange={(d) => { draftsRef.current[cur] = d; }}
-          metadata={{ event, tasks }}
+          metadata={{ event, tasks, branding: { tenant_name: tenant }, nav: navPreview, eventHref: '#', joinHref: '#' }}
           iframe={{ enabled: false }}
-          headerTitle={`${event.name} — ${curPage ? curPage.title : '首頁'}`}
+          headerTitle={`${event.name} — ${docLabel}`}
           overrides={{
             headerActions: () => (
               <HeaderActions
