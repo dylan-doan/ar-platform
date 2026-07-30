@@ -68,6 +68,16 @@ export async function publicGet(path) {
   return apiFetch(path);
 }
 
+const SITE_LOG = process.env.ZOUSTEC_LOG !== '0';
+
+/** What the most recent siteGet() did — customer pages expose it as meta tags,
+ * because an SSR fetch is invisible to the browser's Network tab. */
+let lastSiteFetch = { source: 'none', detail: 'no fetch yet' };
+
+export function lastSiteFetchInfo() {
+  return lastSiteFetch;
+}
+
 /**
  * GET the event-website payload for a customer site we host.
  *
@@ -75,6 +85,9 @@ export async function publicGet(path) {
  * customer's site takes an identical code path whether it runs here or on their
  * own server. PLATFORM_SERVICE_KEY is our first-party credential (valid for any
  * tenant — the slug in the path selects one); it is never handed to a customer.
+ *
+ * Logs every call to the server console and records it for `lastSiteFetchInfo()`
+ * so which endpoint served a page is observable, not guesswork.
  *
  * @param tenant tenant slug
  * @param event  event slug, or undefined for the domain root (the tenant's
@@ -87,10 +100,32 @@ export async function siteGet(tenant, event) {
   // failing: both routes build the payload from the same module
   // (app/services/site_payload.py), so the rendered site is identical. This
   // keeps customer sites serving on deploys where the env var is not set yet.
-  if (!serviceKey) return apiFetch(`/api/public/site${suffix}`);
-  return apiFetch(`/api/headless/site${suffix}`, {
-    headers: { 'x-export-key': serviceKey },
-  });
+  const path = serviceKey
+    ? `/api/headless/site${suffix}`
+    : `/api/public/site${suffix}`;
+  const started = Date.now();
+  try {
+    const data = await apiFetch(
+      path,
+      serviceKey ? { headers: { 'x-export-key': serviceKey } } : {},
+    );
+    const shape = data.mode === 'landing'
+      ? `${data.events?.length ?? 0} events`
+      : `event=${data.event?.slug} tasks=${data.tasks?.length ?? 0}`;
+    lastSiteFetch = {
+      source: serviceKey ? 'api-keyed' : 'api-alias',
+      detail: `GET ${path} 200 ${Date.now() - started}ms · ${shape}`,
+    };
+    if (SITE_LOG) console.log(`[zoustec] ${lastSiteFetch.source} — ${lastSiteFetch.detail}`);
+    return data;
+  } catch (err) {
+    lastSiteFetch = {
+      source: 'error',
+      detail: `GET ${path} failed (${err.message}) ${Date.now() - started}ms`,
+    };
+    if (SITE_LOG) console.log(`[zoustec] error — ${lastSiteFetch.detail}`);
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------- formatting

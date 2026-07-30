@@ -1,7 +1,7 @@
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import EventSite from '../../../../components/event/EventSite';
-import { siteGet } from '../../../../lib/api';
+import { lastSiteFetchInfo, siteGet } from '../../../../lib/api';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +17,13 @@ function linkBase(tenant) {
 export async function generateMetadata({ params }) {
   try {
     const site = await siteGet(params.tenant, params.event);
-    return { title: `${site.event.name} · ${site.branding.tenant_name}` };
+    const info = lastSiteFetchInfo();
+    // The SSR fetch is invisible to the browser's Network tab — record which
+    // endpoint served this render so it is checkable in DevTools → Elements.
+    return {
+      title: `${site.event.name} · ${site.branding.tenant_name}`,
+      other: { 'zoustec:source': info.source, 'zoustec:detail': info.detail },
+    };
   } catch { return { title: '活動' }; }
 }
 

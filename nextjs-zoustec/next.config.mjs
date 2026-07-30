@@ -1,5 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Customer sites are server-rendered, so their platform fetches happen in
+  // Node and never appear in the browser's Network tab. Next's built-in fetch
+  // logging prints every server-side request (URL + cache hit/miss) to the
+  // terminal, which is how you verify which API a page actually called.
+  logging: { fetches: { fullUrl: true } },
+
   async rewrites() {
     // Same-origin proxy: browser calls /api/* and Next forwards to FastAPI —
     // no CORS, one tunnel/domain in front of everything.

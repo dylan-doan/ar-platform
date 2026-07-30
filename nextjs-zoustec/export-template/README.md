@@ -30,6 +30,38 @@ npm start          # 或部署到 Vercel / Render
 - 玩家的 AR 集章流程仍在 LINE（LIFF）內進行 — 「開始旅程」按鈕
   會開啟 LINE。報名、任務、印章、獎勵等邏輯全部由平台提供。
 
+## 如何確認網站真的在讀取平台資料
+
+本網站是**伺服器端渲染（SSR）**：向平台取資料的請求發生在 Node 端，
+瀏覽器只收到已完成的 HTML — 因此 DevTools 的 Network 分頁**看不到**
+這個請求，這是 SSR 的正常現象，不代表沒有呼叫 API。
+
+要確認實際呼叫了哪支 API，有三個方式：
+
+1. **終端機日誌** — 執行 `npm run dev` / `npm start` 的視窗會印出每次呼叫：
+
+   ```
+   [zoustec] api — GET /api/headless/site/bnk 200 143ms · event=walk tasks=3
+   [zoustec] snapshot — GET /api/headless/site/bnk 401 88ms — falling back to data/site.json
+   ```
+
+   （設 `ZOUSTEC_LOG=0` 可關閉。）
+
+2. **狀態端點** — 開 `/api/zoustec-status`，這是瀏覽器**看得到**的真實請求：
+
+   ```bash
+   curl http://localhost:3000/api/zoustec-status
+   ```
+
+   回傳 `source`（`api` = 平台即時資料，`snapshot` = 離線備援）、實際
+   endpoint、金鑰前綴、以及取得的活動／任務數量。
+
+3. **頁面 meta 標籤** — DevTools → Elements → `<head>`，看
+   `zoustec:source` 與 `zoustec:detail`。
+
+若 `source` 顯示 `snapshot`，表示正在用離線快照（金鑰未填、已撤銷、
+或平台連不上）— `detail` 會說明原因。
+
 ## 專案結構
 
 | 路徑 | 說明 |
@@ -41,6 +73,7 @@ npm start          # 或部署到 Vercel / Render
 | `components/event/TenantLanding.jsx` | 多活動總覽頁 |
 | `lib/site-blocks.jsx` | 區塊庫 + 佈景主題（與平台相同）— 可自訂區塊樣式 |
 | `lib/site-data.js` | 平台 API 同步邏輯 |
+| `app/api/zoustec-status/route.js` | 同步狀態診斷端點（見上一節） |
 | `data/site.json` | 匯出時的內容快照（離線備援） |
 | `.env.local` | API 位址與專屬金鑰（**請勿公開此檔**） |
 

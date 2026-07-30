@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import EventSite from '../../components/event/EventSite';
 import EventSubPage from '../../components/event/EventSubPage';
-import { getSite } from '../../lib/site-data';
+import { getSite, lastFetch } from '../../lib/site-data';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,10 +34,12 @@ async function resolve(slug) {
 export async function generateMetadata({ params }) {
   const hit = await resolve(params.page);
   if (!hit) return { title: '找不到頁面' };
+  const info = lastFetch();
+  const other = { 'zoustec:source': info.source, 'zoustec:detail': info.detail };
   if (hit.kind === 'event') {
-    return { title: `${hit.site.event.name} · ${hit.site.branding.tenant_name}` };
+    return { title: `${hit.site.event.name} · ${hit.site.branding.tenant_name}`, other };
   }
-  return { title: `${hit.page.title} · ${hit.site.event.name}` };
+  return { title: `${hit.page.title} · ${hit.site.event.name}`, other };
 }
 
 export default async function Page({ params }) {

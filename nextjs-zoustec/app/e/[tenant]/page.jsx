@@ -2,7 +2,7 @@ import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import EventSite from '../../../components/event/EventSite';
 import TenantLanding from '../../../components/event/TenantLanding';
-import { siteGet } from '../../../lib/api';
+import { lastSiteFetchInfo, siteGet } from '../../../lib/api';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,8 +18,11 @@ function linkBase(tenant) {
 export async function generateMetadata({ params }) {
   try {
     const site = await siteGet(params.tenant);
-    if (site.mode === 'landing') return { title: `${site.branding.tenant_name} · 活動` };
-    return { title: `${site.event.name} · ${site.branding.tenant_name}` };
+    const info = lastSiteFetchInfo();
+    // See the note in [event]/page.jsx — makes the SSR fetch observable.
+    const other = { 'zoustec:source': info.source, 'zoustec:detail': info.detail };
+    if (site.mode === 'landing') return { title: `${site.branding.tenant_name} · 活動`, other };
+    return { title: `${site.event.name} · ${site.branding.tenant_name}`, other };
   } catch { return { title: '活動' }; }
 }
 
