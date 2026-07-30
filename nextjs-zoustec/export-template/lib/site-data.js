@@ -40,6 +40,26 @@ const REVALIDATE = Number(process.env.ZOUSTEC_REVALIDATE ?? 0);
 
 class SiteNotFound extends Error {}
 
+/**
+ * Thrown when the site is not allowed to read its content: the API key is
+ * missing, revoked, or out of scope, or the env is not configured.
+ *
+ * This is a CONFIGURATION fault, so the site refuses to render rather than
+ * quietly serving data/site.json — a silent fallback makes a broken key look
+ * exactly like a healthy site, which is how stale content goes unnoticed.
+ *
+ * A platform OUTAGE is deliberately treated differently: 5xx/network errors do
+ * fall back to the snapshot, so a customer's site does not die just because the
+ * platform is briefly down or waking from sleep.
+ */
+export class SiteLocked extends Error {
+  constructor(reason) {
+    super(reason);
+    this.name = 'SiteLocked';
+    this.reason = reason;
+  }
+}
+
 /** What the most recent getSite() call did — surfaced as response headers. */
 let last = { source: 'none', detail: 'no fetch yet' };
 
@@ -71,9 +91,8 @@ export async function getSite(eventSlug) {
       !TENANT_SLUG && 'ZOUSTEC_TENANT_SLUG',
       !EXPORT_KEY && 'ZOUSTEC_EXPORT_KEY',
     ].filter(Boolean).join(', ');
-    note('snapshot', `not configured (missing ${missing}) — serving data/site.json`);
-    if (eventSlug && snapshot.event?.slug !== eventSlug) throw new SiteNotFound(eventSlug);
-    return snapshot;
+    note('locked', `not configured (missing ${missing})`);
+    throw new SiteLocked(`未設定 ${missing}`);
   }
 
   const path = eventSlug
@@ -109,12 +128,19 @@ export async function getSite(eventSlug) {
       note('not-found', `GET ${path} 404 ${ms}ms`);
       throw new SiteNotFound(path);
     }
-    // 401/403 = key missing/revoked/out of scope. Say so loudly: the site keeps
-    // serving stale content otherwise, which is what hides a broken key.
-    note('snapshot', `GET ${path} ${res.status} ${ms}ms — falling back to data/site.json`);
+    // 401/403 = key rejected (wrong, revoked, or out of scope). A credential
+    // fault must LOCK the site: serving the snapshot here would make a dead key
+    // indistinguishable from a working one.
+    if (res.status === 401 || res.status === 403) {
+      note('locked', `GET ${path} ${res.status} ${ms}ms — key rejected`);
+      throw new SiteLocked(`API 金鑰遭拒（HTTP ${res.status}）`);
+    }
+    // Anything else (5xx, proxy error) is treated as an outage → snapshot.
+    note('snapshot', `GET ${path} ${res.status} ${ms}ms — platform error, using data/site.json`);
   } catch (err) {
-    if (err instanceof SiteNotFound) throw err;
-    note('snapshot', `GET ${path} failed (${err.message}) — falling back to data/site.json`);
+    if (err instanceof SiteNotFound || err instanceof SiteLocked) throw err;
+    // Network/DNS/timeout — the platform is unreachable, not misconfigured.
+    note('snapshot', `GET ${path} failed (${err.message}) — platform unreachable, using data/site.json`);
   }
 
   // The snapshot only ever holds the event this project was exported for.

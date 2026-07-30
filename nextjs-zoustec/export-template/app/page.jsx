@@ -1,11 +1,25 @@
 import EventSite from '../components/event/EventSite';
 import TenantLanding from '../components/event/TenantLanding';
-import { getSite, lastFetch } from '../lib/site-data';
+import SiteLockedScreen from '../components/SiteLockedScreen';
+import { getSite, lastFetch, SiteLocked } from '../lib/site-data';
 
 export const dynamic = 'force-dynamic';
 
 export async function generateMetadata() {
-  const site = await getSite();
+  let site;
+  try {
+    site = await getSite();
+  } catch (err) {
+    // A locked site must never be indexed as if it were real content.
+    if (err instanceof SiteLocked) {
+      return {
+        title: '網站尚未啟用',
+        robots: { index: false, follow: false },
+        other: { 'zoustec:source': 'locked', 'zoustec:detail': err.reason },
+      };
+    }
+    throw err;
+  }
   const info = lastFetch();
   // Where this render's data came from — readable in DevTools → Elements
   // (<head>) without a terminal, since the SSR fetch itself is invisible to the
@@ -18,7 +32,15 @@ export async function generateMetadata() {
 }
 
 export default async function Page() {
-  const site = await getSite();
+  let site;
+  try {
+    site = await getSite();
+  } catch (err) {
+    // Bad/missing key → refuse to render rather than silently serving the
+    // offline snapshot, which would hide a dead credential.
+    if (err instanceof SiteLocked) return <SiteLockedScreen reason={err.reason} />;
+    throw err;
+  }
   // Several active events and no pinned homepage → branded overview, the same
   // rule the platform applies (brand_config.home_mode). linkBase '' keeps the
   // white-label URLs (/{event-slug}) that this project serves.

@@ -53,8 +53,13 @@ npm start          # 或部署到 Vercel / Render
    curl http://localhost:3000/api/zoustec-status
    ```
 
-   回傳 `source`（`api` = 平台即時資料，`snapshot` = 離線備援）、實際
-   endpoint、金鑰前綴、以及取得的活動／任務數量。
+   回傳 `source`、實際 endpoint、金鑰前綴、以及取得的活動／任務數量：
+
+   | `source` | 意義 | HTTP |
+   |---|---|---|
+   | `api` | 正在讀取平台即時資料 | 200 |
+   | `snapshot` | 平台連不上，改用 `data/site.json` | 200 |
+   | `locked` | 金鑰未設定或遭拒 — 網站已鎖定 | **503** |
 
 3. **頁面 meta 標籤** — DevTools → Elements → `<head>`，看
    `zoustec:source` 與 `zoustec:detail`。
@@ -95,8 +100,14 @@ npm start          # 或部署到 Vercel / Render
 （舊金鑰立即失效，需同步更新 `.env.local`）。
 
 金鑰已預先填入 `.env.local` 的 `ZOUSTEC_EXPORT_KEY`，下載後即可直接
-讀取平台即時內容。清空或註解該值時，網站改以 `data/site.json` 快照
-運作，功能不受影響（終端機會印出 `[zoustec] snapshot — …` 提醒）。
+讀取平台即時內容。
+
+> **金鑰無效時網站會鎖定，不會顯示舊資料。** 若金鑰遺失、填錯或已被
+> 撤銷，網站顯示「網站尚未啟用」而非內容 — 這是刻意設計：若改用離線
+> 快照，失效的金鑰看起來會和正常運作一模一樣，問題將被隱藏。
+>
+> 相對地，**平台暫時無法連線**（維護、網路異常、伺服器休眠）時仍會
+> 自動改用 `data/site.json` 快照，讓網站不致中斷。
 
 > **只改 `.env.local` 這一個檔案。** Next.js 讀取環境變數的優先順序是
 > `.env.local` **高於** `.env` — 若兩個檔案都存在，改了 `.env` 不會生效，

@@ -1,7 +1,8 @@
 import { notFound } from 'next/navigation';
 import EventSite from '../../components/event/EventSite';
 import EventSubPage from '../../components/event/EventSubPage';
-import { getSite, lastFetch } from '../../lib/site-data';
+import SiteLockedScreen from '../../components/SiteLockedScreen';
+import { getSite, lastFetch, SiteLocked } from '../../lib/site-data';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,14 +26,30 @@ async function resolve(slug) {
   try {
     const site = await getSite(slug);
     if (site.mode === 'event') return { kind: 'event', site };
-  } catch {
+  } catch (err) {
+    // A locked site must stay locked — never let a credential fault degrade
+    // into a 404, which would read as "page missing" instead of "key broken".
+    if (err instanceof SiteLocked) throw err;
     /* unknown slug — fall through to 404 */
   }
   return null;
 }
 
 export async function generateMetadata({ params }) {
-  const hit = await resolve(params.page);
+  let hit;
+  try {
+    hit = await resolve(params.page);
+  } catch (err) {
+    // A locked site must never be indexed as if it were real content.
+    if (err instanceof SiteLocked) {
+      return {
+        title: '網站尚未啟用',
+        robots: { index: false, follow: false },
+        other: { 'zoustec:source': 'locked', 'zoustec:detail': err.reason },
+      };
+    }
+    throw err;
+  }
   if (!hit) return { title: '找不到頁面' };
   const info = lastFetch();
   const other = { 'zoustec:source': info.source, 'zoustec:detail': info.detail };
@@ -43,7 +60,13 @@ export async function generateMetadata({ params }) {
 }
 
 export default async function Page({ params }) {
-  const hit = await resolve(params.page);
+  let hit;
+  try {
+    hit = await resolve(params.page);
+  } catch (err) {
+    if (err instanceof SiteLocked) return <SiteLockedScreen reason={err.reason} />;
+    throw err;
+  }
   if (!hit) notFound();
   if (hit.kind === 'event') return <EventSite site={hit.site} linkBase="" />;
   return <EventSubPage site={hit.site} page={hit.page} linkBase="" />;

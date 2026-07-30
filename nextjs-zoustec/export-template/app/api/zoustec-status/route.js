@@ -22,15 +22,20 @@ export async function GET() {
   try {
     payload = await getSite();
   } catch {
-    /* reported via lastFetch() below */
+    /* reported via lastFetch() below — including SiteLocked */
   }
 
   const key = process.env.ZOUSTEC_EXPORT_KEY || '';
   const info = lastFetch();
+  // Locked = the key is missing/rejected and the site refuses to serve content.
+  // 503 so uptime checks and scripts see the failure, not just a human.
+  const status = info.source === 'locked' ? 503 : 200;
 
   return NextResponse.json(
     {
-      source: info.source, // "api" = live platform data, "snapshot" = offline fallback
+      // "api" = live platform data · "snapshot" = platform unreachable, serving
+      // the offline copy · "locked" = key missing/rejected, site is blocked
+      source: info.source,
       detail: info.detail,
       config: {
         api_base: process.env.ZOUSTEC_API_BASE || null,
@@ -47,6 +52,6 @@ export async function GET() {
         events: payload.events?.length,
       },
     },
-    { headers: { 'cache-control': 'no-store' } },
+    { status, headers: { 'cache-control': 'no-store' } },
   );
 }
