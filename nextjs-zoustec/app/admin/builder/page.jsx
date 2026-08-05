@@ -6,8 +6,8 @@ import Link from 'next/link';
 import { Icon } from '../../../components/Icon';
 import AdminShell from '../../../components/admin/AdminShell';
 import { adminApi, adminSession, AuthRequired, loginUrl } from '../../../lib/admin-client';
-import EventSections from '../../../components/event/EventSections';
 import { DEFAULT_SECTIONS } from '../../../lib/event-sections';
+import SiteBody, { siteView } from '../../../components/event/SiteBody';
 
 const TYPE_META = {
   city: { icon: 'building-2', label: '城市探索', template: 'Urban Explorer' },
@@ -37,6 +37,57 @@ function taskQrUrl(event, task, brand) {
   return liffId
     ? `https://liff.line.me/${liffId}/experience/login?${params}`
     : `${window.location.origin}/experience/login?${params}`;
+}
+
+/** Inert nav / CTA look-alikes — the preview must LOOK like the site without
+ * navigating away from the builder or opening the LIFF QR modal. */
+function previewNav(nav) {
+  if (!nav.length) return null;
+  return (
+    <nav style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '10px', flexWrap: 'wrap' }}>
+      {nav.map((it) => (
+        <span key={it.slug} style={{ padding: '5px 10px', borderRadius: '9999px', background: 'rgba(255,255,255,.1)', color: 'rgba(255,255,255,.92)', fontSize: '11.5px', fontWeight: 600 }}>{it.label}</span>
+      ))}
+    </nav>
+  );
+}
+const previewCta = (
+  <>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '10px 20px', borderRadius: 'var(--site-btn-radius, 9999px)', background: '#fff', color: 'var(--brand-dark, #134E61)', fontSize: '13.5px', fontWeight: 800 }}>
+      <span style={{ fontSize: '15px', display: 'inline-flex', lineHeight: 0 }}><Icon name="qr-code" /></span>開始旅程
+    </span>
+    <span style={{ display: 'inline-flex', alignItems: 'center', padding: '10px 17px', borderRadius: 'var(--site-btn-radius, 9999px)', background: 'rgba(255,255,255,.12)', color: '#fff', fontSize: '13px', fontWeight: 600, border: '1px solid rgba(255,255,255,.25)' }}>查看地圖</span>
+  </>
+);
+
+/** Scaled-down render of the REAL site — SiteBody is the same component the
+ * public page and the designer canvas use, so the three cannot disagree. */
+function SitePreview({ event, tasks, brand }) {
+  const view = siteView(event);
+  const nav = (event?.config?.pages || []).filter((p) => p?.slug && p.nav !== false)
+    .map((p) => ({ label: p.title || p.slug, href: '#', slug: p.slug }));
+  const branding = {
+    tenant_name: brand?.tenant_name || '',
+    logo_url: brand?.logo_url || '',
+    show_powered_by: brand?.show_powered_by,
+  };
+  // Same metadata contract as the public site so smart blocks + chrome render
+  // real numbers, the live menu and the tenant's brand.
+  const md = { event, tasks, branding, nav, eventHref: '#', joinHref: '#', currentSlug: null };
+  return (
+    <SiteBody
+      compact
+      event={event}
+      tasks={tasks}
+      branding={branding}
+      view={view}
+      metadata={md}
+      nav={previewNav(nav)}
+      heroCta={previewCta}
+      statusLabel={event?.is_active ? '進行中' : '草稿'}
+      emptyHint={<div style={{ padding: '26px', textAlign: 'center', color: 'var(--text-subtle)', fontSize: '13px' }}>尚無版面區塊 — 於「拖曳設計」新增</div>}
+    />
+  );
 }
 
 export default function Page() {
@@ -299,40 +350,16 @@ export default function Page() {
       </div>
     </aside>
 
-    {/* Canvas — live preview */}
+    {/* Canvas — live preview of the REAL site (same renderer as production) */}
     <div className="editor-canvas" style={{padding:'26px', display:'flex', justifyContent:'center', alignItems:'flex-start'}}>
-      <div style={{width:'100%', maxWidth:'640px', background:'#fff', borderRadius:'14px', overflow:'hidden', boxShadow:'var(--shadow-lg)', border:'1px solid var(--border-subtle)'}}>
-        <div style={{height:'280px', background: form?.heroImage ? `linear-gradient(rgba(11,41,53,.62), rgba(19,78,97,.68)), url(${form.heroImage}) center/cover` : 'linear-gradient(150deg, var(--brand-hero-a), var(--brand-hero-b))', position:'relative', display:'flex', flexDirection:'column', justifyContent:'flex-end', padding:'26px', color:'#fff'}}>
-          <div style={{position:'absolute', inset:'0', background:'radial-gradient(circle at 78% 20%,rgba(56,176,214,.35),transparent 55%)'}}></div>
-          <div style={{position:'absolute', top:'18px', left:'18px', display:'flex', alignItems:'center', gap:'8px', fontSize:'12px', fontWeight:'700'}}><span style={{width:'26px', height:'26px', borderRadius:'7px', background:'rgba(255,255,255,.15)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'14px'}}><span style={{display:'inline-flex', lineHeight:'0'}}><Icon name="scan-line" /></span></span>{event?.slug || '…'}</div>
-          <div style={{position:'absolute', top:'18px', right:'18px', display:'flex', alignItems:'center', gap:'6px', fontSize:'11px', fontWeight:'600', background:'rgba(255,255,255,.12)', padding:'6px 11px', borderRadius:'9999px', backdropFilter:'blur(4px)'}}><span style={{width:'7px', height:'7px', borderRadius:'50%', background:'#28C840'}}></span>{event?.is_active ? '進行中' : '草稿'}</div>
-          <div style={{position:'relative', fontSize:'12px', fontWeight:'700', letterSpacing:'.1em', color:'var(--brand-light)', textTransform:'uppercase', marginBottom:'8px'}}>{meta.label}</div>
-          <div style={{position:'relative', fontSize:'34px', fontWeight:'800', lineHeight:'1.1', letterSpacing:'-.02em', maxWidth:'16ch'}}>{form?.name || '…'}</div>
-          <div style={{position:'relative', display:'flex', gap:'10px', marginTop:'18px', flexWrap:'wrap'}}><span style={{display:'inline-flex', alignItems:'center', gap:'8px', padding:'11px 20px', borderRadius:'9999px', background:'#fff', color:'var(--brand-dark)', fontSize:'14px', fontWeight:'700'}}><span style={{fontSize:'16px', display:'inline-flex', lineHeight:'0'}}><Icon name="qr-code" /></span>開始旅程</span><span style={{display:'inline-flex', alignItems:'center', gap:'8px', padding:'11px 18px', borderRadius:'9999px', background:'rgba(255,255,255,.12)', color:'#fff', fontSize:'14px', fontWeight:'600', border:'1px solid rgba(255,255,255,.25)'}}>查看地圖</span></div>
+      <div style={{width:'100%', maxWidth:'640px'}}>
+        <div style={{display:'flex', alignItems:'center', gap:'8px', marginBottom:'9px', fontSize:'11.5px', color:'var(--text-subtle)'}}>
+          <span style={{display:'inline-flex', lineHeight:'0', fontSize:'13px'}}><Icon name="eye" /></span>
+          實際網站預覽 — 與公開網站相同的版面與佈景主題
+          <a href={`/e/${brand?.tenant_slug || TENANT}/${event?.slug}`} target="_blank" rel="noreferrer" style={{marginLeft:'auto', color:'var(--primary-600)', fontWeight:'700', textDecoration:'none'}}>公開網站 ↗</a>
         </div>
-        <div style={{padding:'24px 26px'}}>
-          <div style={{display:'flex', gap:'12px', marginBottom:'22px'}}>
-            <div style={{flex:'1', textAlign:'center', padding:'14px', borderRadius:'10px', background:'var(--surface-sunken)'}}><div style={{fontSize:'22px', fontWeight:'800', color:'var(--text-strong)'}}>{tasks.length}</div><div style={{fontSize:'11px', color:'var(--text-muted)', fontWeight:'600'}}>任務</div></div>
-            <div style={{flex:'1', textAlign:'center', padding:'14px', borderRadius:'10px', background:'var(--surface-sunken)'}}><div style={{fontSize:'22px', fontWeight:'800', color:'var(--text-strong)'}}>{form?.reward_threshold ?? '—'}</div><div style={{fontSize:'11px', color:'var(--text-muted)', fontWeight:'600'}}>集章門檻</div></div>
-            <div style={{flex:'1', textAlign:'center', padding:'14px', borderRadius:'10px', background:'var(--surface-sunken)'}}><div style={{fontSize:'22px', fontWeight:'800', color:'var(--text-strong)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{form?.reward_name || '—'}</div><div style={{fontSize:'11px', color:'var(--text-muted)', fontWeight:'600'}}>獎勵</div></div>
-          </div>
-          <div style={{fontSize:'16px', fontWeight:'800', color:'var(--text-strong)', marginBottom:'12px'}}>任務停靠點</div>
-          <div style={{display:'flex', flexDirection:'column', gap:'10px'}}>
-            {tasks.slice(0, 4).map((t) => (
-              <div key={t.id} style={{display:'flex', alignItems:'center', gap:'13px', padding:'13px', borderRadius:'11px', border:'1px solid var(--border-subtle)'}}><span style={{width:'40px', height:'40px', borderRadius:'9px', background:'var(--primary-50)', color:'var(--brand)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'19px'}}><span style={{display:'inline-flex', lineHeight:'0'}}><Icon name={METHOD_ICON[t.verification_type] || 'map-pin'} /></span></span><div style={{flex:'1'}}><div style={{fontWeight:'700', fontSize:'14px', color:'var(--text-strong)'}}>{t.name}</div><div style={{fontSize:'12px', color:'var(--text-muted)'}}>{METHOD_LABEL[t.verification_type]}{t.radius_m ? ` · ${t.radius_m}m` : ''}</div></div><span style={{fontSize:'16px', color:'var(--text-subtle)', display:'inline-flex', lineHeight:'0'}}><Icon name="chevron-right" /></span></div>
-            ))}
-            {!tasks.length && <div style={{padding:'20px', textAlign:'center', color:'var(--text-subtle)', fontSize:'13px'}}>尚無任務 — 從左側新增</div>}
-          </div>
-          {event?.config?.puck ? (
-            <div style={{marginTop:'20px', padding:'14px', borderRadius:'11px', border:'1.5px dashed var(--border-default)', textAlign:'center', fontSize:'12px', color:'var(--text-muted)', lineHeight:1.6}}>
-              網站內容由「拖曳設計」編輯器管理 — 預覽請至<a href={`/e/${brand?.tenant_slug || TENANT}/${event?.slug}`} target="_blank" rel="noreferrer" style={{color:'var(--primary-600)', fontWeight:'700'}}>公開網站 ↗</a>
-            </div>
-          ) : form?.sections?.filter((x) => !x.hidden).length > 0 && (
-            <div style={{marginTop:'20px'}}>
-              <div style={{fontSize:'16px', fontWeight:'800', color:'var(--text-strong)', marginBottom:'12px'}}>活動資訊</div>
-              <EventSections sections={form.sections} variant="light" />
-            </div>
-          )}
+        <div style={{background:'#fff', borderRadius:'14px', overflow:'hidden', boxShadow:'var(--shadow-lg)', border:'1px solid var(--border-subtle)'}}>
+          <SitePreview event={event} tasks={tasks} brand={brand} />
         </div>
       </div>
     </div>
@@ -411,12 +438,11 @@ export default function Page() {
             <span style={{width:'34px', height:'34px', borderRadius:'9px', background:'var(--primary-600)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'17px'}}><span style={{display:'inline-flex', lineHeight:'0'}}><Icon name="layout-dashboard" /></span></span>
             <div style={{fontSize:'13.5px', fontWeight:'800', color:'var(--primary-800)'}}>網站內容與設計</div>
           </div>
-          <div style={{fontSize:'12px', color:'var(--primary-800)', lineHeight:1.65, marginBottom:'12px'}}>
-            標題、介紹、封面圖、獎勵、佈景主題與所有版面區塊，都在拖曳設計編輯器中編輯（點畫布空白處 → 右側「活動設定」）。支援多頁面與 7 種佈景主題。
+          {/* The 拖曳設計 button lives in the toolbar (always visible); this
+              panel only explains what is edited where. */}
+          <div style={{fontSize:'12px', color:'var(--primary-800)', lineHeight:1.65}}>
+            標題、介紹、封面圖、獎勵、佈景主題、頁首／頁尾與所有版面區塊，都在右上角「拖曳設計」中編輯（點畫布空白處 → 右側「活動設定」）。支援多頁面與 7 種佈景主題。
           </div>
-          <Link href={`/admin/builder/design?event=${event?.id}`} style={{display:'flex', alignItems:'center', justifyContent:'center', gap:'8px', height:'42px', borderRadius:'9999px', background:'var(--primary-600)', color:'#fff', fontSize:'13.5px', fontWeight:'700', textDecoration:'none'}}>
-            <span style={{fontSize:'16px', display:'inline-flex', lineHeight:'0'}}><Icon name="layout-dashboard" /></span>開啟拖曳設計
-          </Link>
         </div>
 
         <div style={{fontSize:'11px', fontWeight:'700', letterSpacing:'.08em', textTransform:'uppercase', color:'var(--text-subtle)', marginBottom:'8px'}}>活動摘要</div>

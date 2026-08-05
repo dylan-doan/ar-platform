@@ -116,6 +116,7 @@ export async function POST(req) {
     ['components', 'Icon.jsx'],
     ['components', 'event', 'EventSite.jsx'],
     ['components', 'event', 'EventSubPage.jsx'],
+    ['components', 'event', 'SiteBody.jsx'],
     ['components', 'event', 'EventSections.jsx'],
     ['components', 'event', 'JoinCta.jsx'],
     ['components', 'event', 'TenantLanding.jsx'],

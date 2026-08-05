@@ -18,6 +18,7 @@ import { useRef, useState } from 'react';
 import { Icon } from '../components/Icon';
 import { adminUpload } from './admin-client';
 import { FONT_STACKS, presetToCustom, siteConfig, THEMES, themeStyles } from './site-blocks';
+import { SiteCustomCss, SiteHero, SiteSlimHeader, siteView } from '../components/event/SiteBody';
 
 function ImageUploadField({ value, onChange }) {
   const inputRef = useRef(null);
@@ -155,32 +156,44 @@ function resolveComponents(components) {
   return Object.fromEntries(Object.entries(components).map(([name, c]) => [name, { ...c, fields: mapFields(c.fields) }]));
 }
 
-/** WYSIWYG hero preview in the editor canvas — mirrors EventSite's hero
- * using the root props being edited. 隱藏預設 Hero shows the slim header the
- * public site falls back to (build a Banner block instead). */
+/** WYSIWYG chrome around the drop zone in the editor canvas.
+ *
+ * The hero / slim header come from the SHARED SiteBody pieces, so what the
+ * admin designs against is literally what the public site renders. `children`
+ * is Puck's drop zone, so this renders the parts around it rather than calling
+ * SiteBody itself (which owns the content slot). */
 function EditorRoot({ children, title, description, heroImage, theme, themeCustom, hideHero, customCss }) {
   const t = themeStyles(theme, themeCustom);
-  const overlay = t.hero?.overlay || 'linear-gradient(rgba(11,41,53,.55), rgba(11,41,53,.66))';
+  // The shared hero reads the event record shape, so adapt the root props the
+  // admin is editing into that shape — edits stay live in the canvas.
+  const event = { name: title, description, config: { heroImage, puckVersion: 2, puck: { root: { props: { theme, themeCustom } } } } };
+  const view = { ...siteView(event), theme: t };
   return (
     <div style={{ ...t.page }}>
-      {customCss && <style dangerouslySetInnerHTML={{ __html: String(customCss).replace(/<\//g, '<\\/') }} />}
+      <SiteCustomCss css={customCss} />
       {hideHero === 'hide' ? (
-        <div style={{ padding: '12px 20px', background: 'linear-gradient(135deg, var(--brand-hero-a, #0E7490), var(--brand-hero-b, #155E75))', color: '#fff', fontSize: '13px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '9px' }}>
-          <span style={{ display: 'inline-flex', lineHeight: 0, fontSize: '15px' }}><Icon name="scan-line" /></span>{title || '（活動標題）'}
-          <span style={{ marginLeft: 'auto', fontSize: '10.5px', fontWeight: 600, opacity: .8 }}>預設 Hero 已隱藏 — 用「橫幅 Banner」區塊自行設計</span>
-        </div>
+        <>
+          <SiteSlimHeader compact event={{ name: title || '（活動標題）' }} branding={null} />
+          <div style={{ padding: '7px 20px', background: 'var(--surface-sunken)', borderBottom: '1px solid var(--border-subtle)', fontSize: '10.5px', fontWeight: 600, color: 'var(--text-subtle)' }}>
+            預設 Hero 已隱藏 — 用「橫幅 Banner」區塊自行設計
+          </div>
+        </>
       ) : (
-        <div style={{ position: 'relative', minHeight: '250px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', padding: '24px', color: '#fff', background: heroImage ? `${overlay}, url(${heroImage}) center/cover` : 'linear-gradient(150deg, var(--brand-hero-a, #0E7490), var(--brand-hero-b, #155E75))' }}>
-          <div style={{ fontSize: '11.5px', fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,.85)', marginBottom: '8px' }}>WebAR 集章活動</div>
-          <div style={{ fontSize: 'clamp(26px, 4vw, 38px)', fontWeight: 'var(--site-heading-weight, 800)', lineHeight: 1.1, letterSpacing: '-.02em', maxWidth: '20ch', ...(t.page.fontFamily ? { fontFamily: t.page.fontFamily } : {}) }}>{title || '（活動標題）'}</div>
-          {description && <p style={{ margin: '10px 0 0', fontSize: '13.5px', color: 'rgba(255,255,255,.85)', lineHeight: 1.6, maxWidth: '62ch' }}>{description}</p>}
-          <div style={{ display: 'flex', gap: '9px', marginTop: '16px', flexWrap: 'wrap' }}>
+        <SiteHero
+          compact
+          view={view}
+          event={{ name: title || '（活動標題）', description }}
+          branding={null}
+          statusLabel="進行中"
+          cta={<>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '10px 20px', borderRadius: 'var(--site-btn-radius, 9999px)', background: '#fff', color: 'var(--brand-dark, #134E61)', fontSize: '13.5px', fontWeight: 800 }}><span style={{ fontSize: '15px', display: 'inline-flex', lineHeight: 0 }}><Icon name="qr-code" /></span>開始旅程</span>
             <span style={{ display: 'inline-flex', alignItems: 'center', padding: '10px 17px', borderRadius: 'var(--site-btn-radius, 9999px)', background: 'rgba(255,255,255,.12)', color: '#fff', fontSize: '13px', fontWeight: 600, border: '1px solid rgba(255,255,255,.25)' }}>查看地圖</span>
-          </div>
-        </div>
+          </>}
+        />
       )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '22px 20px 30px', ...t.vars }}>{children}</div>
+      {/* Same padding as SiteBody's compact body so blocks sit where they will
+          sit in the builder preview. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '20px 22px', ...t.vars }}>{children}</div>
     </div>
   );
 }

@@ -14,9 +14,8 @@ import { Icon } from '../Icon';
 import JoinCta from './JoinCta';
 import { brandPalette } from '../../lib/brand';
 import { chromeDoc, siteConfig, themeStyles } from '../../lib/site-blocks';
-import { chromeMeta, CustomCss, SiteFooter, SiteHeader, siteJoinHref, siteNav, siteRoot, siteTheme } from './EventSite';
-
-const WRAP = { maxWidth: '1140px', width: '100%', margin: '0 auto', padding: '0 clamp(16px, 4vw, 26px)' };
+import { chromeMeta, CustomCss, SiteFooter, SiteHeader, siteJoinHref, siteNav, siteNavLinks, siteRoot, siteTheme } from './EventSite';
+import { SiteDefaultFooter, WRAP } from './SiteBody';
 
 export default function EventSubPage({ site, page, linkBase }) {
   const { branding, event, tasks } = site;
@@ -54,12 +53,9 @@ export default function EventSubPage({ site, page, linkBase }) {
           : <span style={{width:'28px', height:'28px', borderRadius:'7px', background:'rgba(255,255,255,.16)', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:'15px'}}><Icon name="scan-line" /></span>}
         <span style={{fontSize:'14px', fontWeight:'700'}}>{event.name}</span>
       </Link>
-      <nav style={{display:'flex', alignItems:'center', gap:'4px', marginLeft:'10px', flexWrap:'wrap'}}>
-        <Link href={eventHref} style={{padding:'6px 12px', borderRadius:'9999px', color:'rgba(255,255,255,.92)', fontSize:'12.5px', fontWeight:'600', textDecoration:'none'}}>首頁</Link>
-        {nav.map((it) => it.external
-          ? <a key={it.href} href={it.href} target="_blank" rel="noreferrer" style={{padding:'6px 12px', borderRadius:'9999px', color:'#fff', fontSize:'12.5px', fontWeight:'600', textDecoration:'none', background:'rgba(255,255,255,.08)'}}>{it.label}</a>
-          : <Link key={it.href} href={it.href} style={{padding:'6px 12px', borderRadius:'9999px', color:'#fff', fontSize:'12.5px', fontWeight:'600', textDecoration:'none', background: it.slug === page.slug ? 'rgba(255,255,255,.22)' : 'rgba(255,255,255,.08)'}}>{it.label}</Link>)}
-      </nav>
+      {/* 首頁 is not part of `nav` (that lists sub-pages), so it is prepended
+          here and the shared pills follow — one nav element, same styling. */}
+      {siteNavLinks([{ label: '首頁', href: eventHref }, ...nav], page.slug)}
       <div style={{marginLeft:'auto'}}>
         <JoinCta href={joinHref} label="開始旅程" icon="qr-code" variant="primary" />
       </div>
@@ -75,11 +71,7 @@ export default function EventSubPage({ site, page, linkBase }) {
   </div>
 
   {/* ── Footer — admin-designed 頁尾 wins over the built-in one ──────── */}
-  {customFooter ? <SiteFooter site={site} meta={meta} /> : (
-  <div style={{padding:'16px', textAlign:'center', borderTop:'1px solid var(--border-subtle)', fontSize:'11.5px', color:'var(--text-subtle)', background:'#fff'}}>
-    © {branding.tenant_name}{branding.show_powered_by && <> · Powered by <span style={{fontWeight:'700'}}>Zoustec</span></>}
-  </div>
-  )}
+  {customFooter ? <SiteFooter site={site} meta={meta} /> : <SiteDefaultFooter branding={branding} />}
 </div>
   );
 }
