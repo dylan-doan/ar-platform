@@ -1,5 +1,14 @@
 # Triển khai Website Tĩnh theo Version (2026-08-13)
 
+> **Cập nhật cùng ngày (v2):** bước Generate KHÔNG còn dùng renderer riêng ở
+> backend (bản đầu render skin đơn giản → khác giao diện site thật). Giờ
+> frontend route `POST /api/export-static-site` **chụp chính HTML do SSR của
+> platform render** (`/e/{tenant}/{event}`), gỡ Next.js runtime, gom compiled
+> CSS + ảnh vào bundle → đã kiểm chứng **pixel-giống-hệt** site sống bằng
+> screenshot headless. Backend chỉ còn validate/lưu/serve (`site/upload`
+> nhận `?source_type=generated`). Một renderer duy nhất — đúng nguyên tắc
+> "1 khung site khách" của repo.
+
 > Hiện thực hóa `html_website_builder_deployment_platform.md` (và
 > `website_builder_static_deployment_architecture.md`) trên stack thật của
 > dự án: **FastAPI + Postgres (Neon) + Render free** — không có Nginx/S3
@@ -11,9 +20,11 @@
 ```
 User tạo website trên platform (Builder / design JSON — giữ nguyên)
         ↓
-POST /api/admin/events/{id}/site/generate
-        → render design thành site tĩnh THẬT: index.html, {page}.html,
-          css/style.css, js/site-config.js, js/main.js, assets/*
+POST /api/export-static-site (frontend — nơi duy nhất có renderer)
+        → chụp SSR /e/{tenant}/{event}[/{page}] → gỡ script Next, gom
+          compiled CSS → css/style.css, ảnh /media/db → assets/*,
+          link nội bộ → {page}.html, chèn js/site-config.js + js/main.js
+        → POST backend site/upload?source_type=generated
         → site_versions (source_type = generated), file lưu nguyên văn
         ↓
 Preview  /sites/preview/{version_id}/          (UUID = token, chưa lên sóng)

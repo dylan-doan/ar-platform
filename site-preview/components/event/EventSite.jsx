@@ -182,15 +182,15 @@ export default function EventSite({ site, linkBase }) {
       <div className="grid-kpi" style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'14px'}}>
         <div style={{background:'var(--site-card-bg, #fff)', borderRadius:'var(--site-radius, 14px)', border:'1px solid var(--border-subtle)', boxShadow:'var(--shadow-md)', padding:'18px 20px', display:'flex', alignItems:'center', gap:'14px'}}>
           <span style={{width:'42px', height:'42px', borderRadius:'11px', background:'var(--primary-50)', color:p.brand, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'20px', flex:'0 0 auto'}}><Icon name="map-pin" /></span>
-          <div><div style={{fontSize:'24px', fontWeight:'800', color:'var(--text-strong)', lineHeight:1.1}}>{tasks.length}</div><div style={{fontSize:'12px', color:'var(--text-muted)', fontWeight:'600'}}>任務停靠點</div></div>
+          <div><div data-zs="stat-tasks" style={{fontSize:'24px', fontWeight:'800', color:'var(--text-strong)', lineHeight:1.1}}>{tasks.length}</div><div style={{fontSize:'12px', color:'var(--text-muted)', fontWeight:'600'}}>任務停靠點</div></div>
         </div>
         <div style={{background:'var(--site-card-bg, #fff)', borderRadius:'var(--site-radius, 14px)', border:'1px solid var(--border-subtle)', boxShadow:'var(--shadow-md)', padding:'18px 20px', display:'flex', alignItems:'center', gap:'14px'}}>
           <span style={{width:'42px', height:'42px', borderRadius:'11px', background:'var(--primary-50)', color:p.brand, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'20px', flex:'0 0 auto'}}><Icon name="award" /></span>
-          <div><div style={{fontSize:'24px', fontWeight:'800', color:'var(--text-strong)', lineHeight:1.1}}>{event.reward_threshold}</div><div style={{fontSize:'12px', color:'var(--text-muted)', fontWeight:'600'}}>集章門檻</div></div>
+          <div><div data-zs="stat-threshold" style={{fontSize:'24px', fontWeight:'800', color:'var(--text-strong)', lineHeight:1.1}}>{event.reward_threshold}</div><div style={{fontSize:'12px', color:'var(--text-muted)', fontWeight:'600'}}>集章門檻</div></div>
         </div>
         <div style={{background:'var(--site-card-bg, #fff)', borderRadius:'var(--site-radius, 14px)', border:'1px solid var(--border-subtle)', boxShadow:'var(--shadow-md)', padding:'18px 20px', display:'flex', alignItems:'center', gap:'14px', minWidth:0}}>
           <span style={{width:'42px', height:'42px', borderRadius:'11px', background:'var(--primary-50)', color:p.brand, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'20px', flex:'0 0 auto'}}><Icon name="gift" /></span>
-          <div style={{minWidth:0}}><div style={{fontSize:'17px', fontWeight:'800', color:'var(--text-strong)', lineHeight:1.25, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{event.reward_name || '—'}</div><div style={{fontSize:'12px', color:'var(--text-muted)', fontWeight:'600'}}>獎勵</div></div>
+          <div style={{minWidth:0}}><div data-zs="stat-reward" style={{fontSize:'17px', fontWeight:'800', color:'var(--text-strong)', lineHeight:1.25, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{event.reward_name || '—'}</div><div style={{fontSize:'12px', color:'var(--text-muted)', fontWeight:'600'}}>獎勵</div></div>
         </div>
       </div>
     </div>
@@ -203,7 +203,7 @@ export default function EventSite({ site, linkBase }) {
           <div key={i} style={{display:'flex', alignItems:'center', gap:'13px', padding:'15px', borderRadius:'var(--site-radius, 13px)', border:'1px solid var(--border-subtle)', background:'var(--site-card-bg, #fff)', boxShadow:'var(--shadow-sm)'}}>
             <span style={{width:'44px', height:'44px', borderRadius:'11px', background:'var(--primary-50)', color:p.brand, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'20px', flex:'0 0 auto'}}><Icon name={METHOD_ICON[t.verification_type] || 'map-pin'} /></span>
             <div style={{flex:1, minWidth:0}}>
-              <div style={{fontWeight:'700', fontSize:'14.5px', color:'var(--text-strong)'}}>{t.name}</div>
+              <div data-zs="task-name" style={{fontWeight:'700', fontSize:'14.5px', color:'var(--text-strong)'}}>{t.name}</div>
               <div style={{fontSize:'12px', color:'var(--text-muted)'}}>{METHOD_LABEL[t.verification_type]}{t.radius_m ? ` · 範圍 ${t.radius_m}m` : ''}</div>
             </div>
             <span style={{fontSize:'16px', color:'var(--text-subtle)', display:'inline-flex', lineHeight:'0'}}><Icon name="chevron-right" /></span>

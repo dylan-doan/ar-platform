@@ -37,7 +37,10 @@ export default function JoinCta({ href, label, icon, variant = 'primary' }) {
 
   return (
     <>
-      <button onClick={go} style={{...VARIANTS[variant] || VARIANTS.primary, opacity: busy ? .7 : 1}}>
+      {/* data-zs/-href: the static-site bundle has no React runtime — its
+          js/main.js binds the click (and refreshes the LIFF link) from these
+          attributes. Inert here: React's onClick wins on the platform. */}
+      <button onClick={go} data-zs="join" data-zs-href={href} style={{...VARIANTS[variant] || VARIANTS.primary, opacity: busy ? .7 : 1}}>
         {icon && <span style={{fontSize:'17px', display:'inline-flex', lineHeight:'0'}}><Icon name={icon} /></span>}{label}
       </button>
 

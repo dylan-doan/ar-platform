@@ -272,12 +272,21 @@ export default function Page() {
     try { setSite(await adminApi(`/api/admin/events/${event.id}/site/versions`)); } catch { /* keep last */ }
   }
 
-  /** Render the PUBLISHED design into static HTML/CSS/JS as a new version. */
+  /** Capture the live site's own SSR into static HTML/CSS/JS as a new
+   * version (frontend route — the platform renderer lives here, so the
+   * bundle looks exactly like the published site). */
   async function generateSite() {
     if (!event || busy) return;
     setBusy(true); setError('');
     try {
-      const d = await adminApi(`/api/admin/events/${event.id}/site/generate`, { method: 'POST' });
+      const s = adminSession.get('tenant');
+      const res = await fetch('/api/export-static-site', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${s?.token || ''}` },
+        body: JSON.stringify({ eventId: event.id }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d?.error?.message || `HTTP ${res.status}`);
       await refreshSite();
       window.open(d.preview_path, '_blank', 'noopener');
       setFlash(`已產生 v${d.version_number} — 預覽確認後按「上線」`); setTimeout(() => setFlash(''), 5000);

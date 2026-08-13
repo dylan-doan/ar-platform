@@ -425,20 +425,22 @@ const solidCard = { background: 'var(--site-card-bg, #fff)', borderRadius: 'var(
 function StatsBandBlock({ puck }) {
   const ev = puck?.metadata?.event || {};
   const tasks = puck?.metadata?.tasks || [];
-  const cell = (icon, big, small) => (
+  // data-zs: live-data markers — the static-site bundle's js/main.js refreshes
+  // these from the public API at runtime (inert on the platform-rendered site).
+  const cell = (icon, big, small, zs) => (
     <div style={{ ...solidCard, padding: '16px 18px', display: 'flex', alignItems: 'center', gap: '13px', flex: '1 1 160px', minWidth: 0 }}>
       <span style={{ width: '40px', height: '40px', borderRadius: 'var(--site-radius, 11px)', background: 'var(--surface-sunken)', color: 'var(--brand, var(--primary-600))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '19px', flex: '0 0 auto' }}><Icon name={icon} /></span>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: '21px', fontWeight: 'var(--site-heading-weight, 800)', color: 'var(--text-strong)', lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{big}</div>
+        <div data-zs={zs} style={{ fontSize: '21px', fontWeight: 'var(--site-heading-weight, 800)', color: 'var(--text-strong)', lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{big}</div>
         <div style={{ fontSize: '12px', color: 'var(--text-subtle)', fontWeight: 600 }}>{small}</div>
       </div>
     </div>
   );
   return (
     <div style={{ display: 'flex', gap: '13px', flexWrap: 'wrap' }}>
-      {cell('map-pin', tasks.length, '任務停靠點')}
-      {cell('award', ev.reward_threshold ?? '—', '集章門檻')}
-      {cell('gift', ev.reward_name || '—', '獎勵')}
+      {cell('map-pin', tasks.length, '任務停靠點', 'stat-tasks')}
+      {cell('award', ev.reward_threshold ?? '—', '集章門檻', 'stat-threshold')}
+      {cell('gift', ev.reward_name || '—', '獎勵', 'stat-reward')}
     </div>
   );
 }
@@ -454,7 +456,7 @@ function TaskStopsBlock({ title, puck }) {
           <div key={i} style={{ ...solidCard, display: 'flex', alignItems: 'center', gap: '13px', padding: '14px' }}>
             <span style={{ width: '42px', height: '42px', borderRadius: 'var(--site-radius, 11px)', background: 'var(--surface-sunken)', color: 'var(--brand, var(--primary-600))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '19px', flex: '0 0 auto' }}><Icon name={METHOD_ICON[t.verification_type] || 'map-pin'} /></span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-strong)' }}>{t.name}</div>
+              <div data-zs="task-name" style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text-strong)' }}>{t.name}</div>
               <div style={{ fontSize: '12px', color: 'var(--text-subtle)' }}>{METHOD_LABEL[t.verification_type] || ''}{t.radius_m ? ` · 範圍 ${t.radius_m}m` : ''}</div>
             </div>
             <span style={{ fontSize: '15px', color: 'var(--text-subtle)', display: 'inline-flex', lineHeight: 0 }}><Icon name="chevron-right" /></span>

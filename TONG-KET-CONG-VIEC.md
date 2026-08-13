@@ -309,12 +309,29 @@ rollback. Chi tiết đầy đủ: **TRIEN-KHAI-WEBSITE-TINH.md**.
 | Gỡ code cũ | `GET/PUT /design/html` + `site_html.py` (dịch ngược) XÓA; sanitizer tách ra `html_sanitizer.py` (Builder Mode HtmlBlock vẫn dùng); bs4 khỏi requirements. Design JSON lifecycle, export Next.js, SSR `/e/` GIỮ NGUYÊN |
 | UI builder | Khu "靜態網站" thay "HTML 編輯": 產生網站版本 / 上傳 ZIP / danh sách version (預覽·下載·上線, badge 線上) / 開啟正式網站 / rollback = 上線 version cũ |
 
-Kiểm chứng: **116/116 test** (mới: `tests/nodb/test_site_static.py` —
-layout/asset/manifest/traversal/zip-bomb/extension; `tests/test_site_versions_api.py`
-— generate→preview→publish→serve qua `/sites/`, upload verbatim (script user
-GIỮ NGUYÊN), rollback, 409 xóa version online, tenant-scoping RLS); frontend
-`npm run build` pass. Chưa làm: domain khách trỏ thẳng site tĩnh, key
-per-event + ràng buộc domain, theme catalog riêng (ghi ở
+**Fix cùng ngày — bản download phải GIỐNG HỆT site** (user bắt lỗi bằng
+screenshot): bản đầu generate bằng renderer riêng ở backend → skin đơn giản,
+khác hẳn site thật. Đã bỏ renderer backend, thay bằng frontend route
+`POST /api/export-static-site`: **chụp chính HTML SSR của `/e/...`** (một
+renderer duy nhất — đúng nguyên tắc "1 khung"), gỡ script Next + preload,
+gom compiled CSS thành `css/style.css` (regex nhận cả `?v=` của dev lẫn prod),
+tải ảnh `/media/db/*` vào `assets/` và thay URL, viết lại link nội bộ thành
+`{page}.html` (link sự kiện khác/`/experience` → URL tuyệt đối platform),
+chèn `js/site-config.js` + `js/main.js`, zip → POST
+`site/upload?source_type=generated`. Component dùng chung gắn marker
+`data-zs` (stats/task-name/event-name/join + `data-zs-href` trên nút JoinCta
+—静 site không có React nên main.js tự bind click); đã `npm run sync`
+site-preview. Backend `site_static.py` chỉ còn validate/lưu/manifest/serve.
+
+Kiểm chứng: **112/112 test** (`tests/nodb/test_site_static.py` —
+manifest/traversal/zip-bomb/extension/verbatim; `tests/test_site_versions_api.py`
+— generate(=upload generated)→preview→publish→serve qua `/sites/`, upload
+verbatim (script user GIỮ NGUYÊN), rollback, 409 xóa version online,
+tenant-scoping RLS); frontend `npm run build` pass; **E2E local đủ vòng**:
+dev login → export-static-site → preview → screenshot so với `/e` =
+**giống hệt từng pixel**, hero image vào `assets/`, link + LIFF CTA đúng,
+download zip đúng layout doc. Chưa làm: domain khách trỏ thẳng site tĩnh,
+key per-event + ràng buộc domain, theme catalog riêng (ghi ở
 TRIEN-KHAI-WEBSITE-TINH.md §6).
 
 ## 4. Kiến trúc — điểm không được quên

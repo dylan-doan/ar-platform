@@ -55,11 +55,8 @@ from app.services.site_design import (
 )
 from app.services.site_static import (
     MAX_SITE_ZIP,
-    SiteContext,
     build_manifest,
     create_site_version,
-    load_design_media,
-    render_site,
     validate_site_upload,
     version_out,
 )
@@ -455,22 +452,13 @@ async def discard_design_draft(
 
 # --------------------------------------------- static website versions
 # The static-website model (docs/html_website_builder_deployment_platform.md):
-# the platform GENERATES a plain static site (HTML/CSS/JS/assets) from the
-# design, the user downloads it, edits it with any tool, uploads it back —
-# and the upload is stored VERBATIM as a new immutable version (never parsed
-# back into builder blocks, doc §26). Publish/rollback repoint
+# the frontend renders the site into plain static HTML/CSS/JS (POST
+# /api/export-static-site — it captures the platform's own SSR so the bundle
+# looks exactly like the live site) and posts the file set here as a version
+# (source_type=generated). The user downloads it, edits it with any tool,
+# uploads it back — stored VERBATIM as the next version (never parsed back
+# into builder blocks, doc §26). Publish/rollback repoint
 # events.site_version_id; production serves /sites/{tenant}/{event}/.
-
-
-def _request_origin(request: Request) -> str:
-    """Caller's browser origin (the admin UI proxies /api, /media and /sites),
-    used as the absolute API base baked into js/site-config.js so the site
-    works from file://, self-hosting, and custom domains alike."""
-    origin = request.headers.get("origin") or ""
-    if not origin and request.headers.get("referer"):
-        m = re.match(r"(https?://[^/]+)", request.headers["referer"])
-        origin = m.group(1) if m else ""
-    return origin or str(request.base_url).rstrip("/")
 
 
 async def _get_site_version(ctx: AuthContext, event: Event, version_id: uuid.UUID) -> SiteVersion:
@@ -486,65 +474,6 @@ async def _get_site_version(ctx: AuthContext, event: Event, version_id: uuid.UUI
     if version is None:
         raise ApiError(404, "site_version_not_found", "找不到此網站版本。")
     return version
-
-
-@router.post("/events/{event_id}/site/generate")
-async def generate_site_version(
-    event_id: uuid.UUID,
-    request: Request,
-    ctx: AuthContext = Depends(tenant_admin_context),
-) -> dict:
-    """Render the event's published design into a static website and store it
-    as the next version (source_type="generated"). Nothing goes live until the
-    version is published — preview first via the returned preview_path."""
-    event = await _get_event(ctx, event_id)
-    tenant = (
-        await ctx.session.execute(
-            select(Tenant).where(Tenant.id == ctx.identity.tenant_id)
-        )
-    ).scalar_one()
-    task_names = (
-        await ctx.session.execute(
-            select(Task.name)
-            .where(Task.event_id == event.id, Task.is_active)
-            .order_by(Task.sort_order)
-        )
-    ).scalars().all()
-    _, site_key = await _tenant_site_key(ctx)
-
-    cfg = event.config or {}
-    media = await load_design_media(ctx.session, cfg, cfg.get("heroImage") or "")
-    site_ctx = SiteContext(
-        tenant_slug=tenant.slug,
-        event_slug=event.slug,
-        event_name=event.name,
-        description=event.description or "",
-        hero_image=cfg.get("heroImage") or "",
-        tenant_name=tenant.name,
-        brand_color=(tenant.brand_config or {}).get("theme_color"),
-        reward_name=event.reward_name or "",
-        reward_threshold=event.reward_threshold or 1,
-        tasks=list(task_names),
-        api_base=_request_origin(request),
-        site_key=site_key,
-        liff_id=tenant.line_liff_id,
-        media=media,
-    )
-    files = render_site(cfg, site_ctx)
-    version = await create_site_version(
-        ctx.session,
-        tenant_id=ctx.identity.tenant_id,
-        event_id=event.id,
-        source_type="generated",
-        files=files,
-        created_by=str(ctx.identity.subject_id),
-    )
-    await _audit_admin(
-        ctx, "site.generated", "site_version", version.id,
-        {"version": version.version_number, "files": version.file_count},
-    )
-    await ctx.session.commit()
-    return {"status": "generated", **version_out(version, event.site_version_id)}
 
 
 @router.get("/events/{event_id}/site/versions")
@@ -618,14 +547,20 @@ async def download_site_version(
 async def upload_site_version(
     event_id: uuid.UUID,
     file: UploadFile,
+    source_type: str = "user_upload",
     ctx: AuthContext = Depends(tenant_admin_context),
 ) -> dict:
-    """Upload an edited website zip → next version, stored VERBATIM.
+    """A website zip → next version, stored VERBATIM.
 
-    Validation is the doc §11 checklist (traversal / zip bomb / static-only
-    extensions / index.html present); the manifest, when still present, must
-    belong to THIS event. The files themselves are never rewritten or parsed —
-    what is uploaded is exactly what production will serve after publish."""
+    Two callers: the end user uploading their edited site (source_type
+    "user_upload", the default), and the frontend's 產生網站版本 route posting
+    the bundle it rendered from the platform's own SSR ("generated"). Both go
+    through the same doc §11 validation (traversal / zip bomb / static-only
+    extensions / index.html present); a manifest, when present, must belong to
+    THIS event. Files are never rewritten or parsed — what is uploaded is
+    exactly what production will serve after publish."""
+    if source_type not in ("user_upload", "generated"):
+        raise ApiError(422, "site_invalid", "source_type 只能是 user_upload 或 generated。")
     event = await _get_event(ctx, event_id)
     data = await file.read()
     if len(data) > MAX_SITE_ZIP:
@@ -642,16 +577,22 @@ async def upload_site_version(
         ctx.session,
         tenant_id=ctx.identity.tenant_id,
         event_id=event.id,
-        source_type="user_upload",
+        source_type=source_type,
         files=files,
         created_by=str(ctx.identity.subject_id),
     )
     await _audit_admin(
-        ctx, "site.uploaded", "site_version", version.id,
+        ctx,
+        "site.generated" if source_type == "generated" else "site.uploaded",
+        "site_version",
+        version.id,
         {"version": version.version_number, "files": version.file_count},
     )
     await ctx.session.commit()
-    return {"status": "uploaded", **version_out(version, event.site_version_id)}
+    return {
+        "status": "generated" if source_type == "generated" else "uploaded",
+        **version_out(version, event.site_version_id),
+    }
 
 
 @router.post("/events/{event_id}/site/versions/{version_id}/publish")

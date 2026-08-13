@@ -19,9 +19,23 @@ def _zip(entries: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
+GENERATED_SITE = {
+    "index.html": b'<html><head><link rel="stylesheet" href="css/style.css">'
+                  b'<script src="js/site-config.js" defer></script></head>'
+                  b"<body><h1>Alpha Walk</h1></body></html>",
+    "css/style.css": b"body{margin:0}",
+    "js/site-config.js": b'window.ZOUSTEC_SITE = {"tenant": "alpha"};',
+    "js/main.js": b"/* runtime */",
+}
+
+
 async def _generate(client, token, event_id):
+    """The frontend's 產生網站版本 route renders the site (from the platform's
+    own SSR) and posts the bundle here — simulated with a canned file set."""
     res = await client.post(
-        f"/api/admin/events/{event_id}/site/generate", headers=bearer(token)
+        f"/api/admin/events/{event_id}/site/upload?source_type=generated",
+        headers=bearer(token),
+        files={"file": ("website.zip", _zip(GENERATED_SITE), "application/zip")},
     )
     assert res.status_code == 200, res.text
     return res.json()

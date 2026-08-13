@@ -100,8 +100,8 @@ export function SiteHero({ view, event, branding, nav, compact, cta, statusLabel
       {/* Hero copy */}
       <div style={inner}>
         <div style={{ fontSize: scale.label, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,.85)', marginBottom: '10px' }}>{TYPE_LABEL[event?.event_type] || '互動體驗'} · WebAR 集章</div>
-        <h1 style={{ margin: 0, fontSize: scale.title, fontWeight: 'var(--site-heading-weight, 800)', lineHeight: 1.08, letterSpacing: '-.02em', color: '#fff', maxWidth: '20ch' }}>{event?.name || '（活動標題）'}</h1>
-        {event?.description && <p style={{ margin: `${scale.gap} 0 0`, fontSize: scale.desc, color: 'rgba(255,255,255,.85)', lineHeight: 1.65, maxWidth: '62ch' }}>{event.description}</p>}
+        <h1 data-zs="event-name" style={{ margin: 0, fontSize: scale.title, fontWeight: 'var(--site-heading-weight, 800)', lineHeight: 1.08, letterSpacing: '-.02em', color: '#fff', maxWidth: '20ch' }}>{event?.name || '（活動標題）'}</h1>
+        {event?.description && <p data-zs="event-description" style={{ margin: `${scale.gap} 0 0`, fontSize: scale.desc, color: 'rgba(255,255,255,.85)', lineHeight: 1.65, maxWidth: '62ch' }}>{event.description}</p>}
         {cta && <div style={{ display: 'flex', gap: '10px', marginTop: compact ? '16px' : '24px', flexWrap: 'wrap' }}>{cta}</div>}
       </div>
     </div>
