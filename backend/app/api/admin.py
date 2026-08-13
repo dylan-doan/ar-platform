@@ -8,7 +8,7 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, Request, UploadFile
 from geoalchemy2 import Geometry
 from sqlalchemy import cast, delete, func, select
 from starlette.responses import Response, StreamingResponse
@@ -36,6 +36,11 @@ from app.schemas import (
     TaskUpdate,
 )
 from app.services.audit import record_audit
+from app.services.site_design import (
+    apply_design,
+    check_media_ownership,
+    validate_design,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["tenant-admin"])
 
@@ -300,6 +305,12 @@ async def update_event(
         ).scalar_one_or_none()
         if taken:
             raise ApiError(409, "slug_taken", "此代稱（slug）已有其他活動使用。")
+    # The designer saves its layout through this generic PATCH; hold its
+    # config to the same block whitelist as the design upload endpoint so a
+    # direct API caller cannot smuggle unknown block types past the client.
+    new_config = changes.get("config")
+    if isinstance(new_config, dict) and isinstance(new_config.get("puck"), dict):
+        validate_design(new_config)
     for key, value in changes.items():
         setattr(event, key, value)
     await _audit_admin(ctx, "event.updated", "event", event.id, {"fields": list(changes)})
@@ -314,6 +325,103 @@ async def delete_event(
     event = await _get_event(ctx, event_id)
     await ctx.session.delete(event)
     await _audit_admin(ctx, "event.deleted", "event", event_id, {"slug": event.slug})
+    await ctx.session.commit()
+
+
+# ------------------------------------------------ design JSON round-trip
+# The download → edit locally → upload back loop for a customer's site
+# design. The design is DATA only ({puck, pages, header, footer}); an upload
+# lands as an UNPUBLISHED draft with a preview token, and the live site
+# changes only on explicit publish — a bad upload can never take a site down.
+
+
+async def _tenant_slug(ctx: AuthContext) -> str:
+    return (
+        await ctx.session.execute(
+            select(Tenant.slug).where(Tenant.id == ctx.identity.tenant_id)
+        )
+    ).scalar_one()
+
+
+def _draft_summary(event: Event, tenant_slug: str) -> dict | None:
+    draft = event.design_draft or {}
+    if not draft.get("design"):
+        return None
+    return {
+        "updated_at": draft.get("updated_at"),
+        "preview_path": f"/e/{tenant_slug}/{event.slug}?draft={draft.get('token')}",
+    }
+
+
+@router.get("/events/{event_id}/design")
+async def get_design(
+    event_id: uuid.UUID, ctx: AuthContext = Depends(tenant_admin_context)
+) -> dict:
+    """The event's current design in the SAME shape the designer's 匯出設計
+    JSON produces, so tooling can round-trip without going through the UI."""
+    event = await _get_event(ctx, event_id)
+    cfg = event.config or {}
+    return {
+        "zoustec_design": 1,
+        "puck": cfg.get("puck"),
+        "pages": cfg.get("pages") or [],
+        "header": cfg.get("header"),
+        "footer": cfg.get("footer"),
+        "draft": _draft_summary(event, await _tenant_slug(ctx)),
+    }
+
+
+@router.put("/events/{event_id}/design")
+async def put_design(
+    event_id: uuid.UUID,
+    body: dict = Body(...),
+    ctx: AuthContext = Depends(tenant_admin_context),
+) -> dict:
+    """Upload an edited design as a draft. Accepts a designer JSON export or a
+    data/site.json snapshot; validates block types and media ownership, strips
+    event-owned fields, and answers with a tokenized preview URL. Nothing is
+    published until POST .../design/publish."""
+    event = await _get_event(ctx, event_id)
+    design = validate_design(body)
+    await check_media_ownership(ctx.session, design)
+    token = secrets.token_urlsafe(16)
+    event.design_draft = {
+        "design": design,
+        "token": token,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await _audit_admin(ctx, "event.design_draft", "event", event.id, {"slug": event.slug})
+    await ctx.session.commit()
+    tenant_slug = await _tenant_slug(ctx)
+    return {
+        "status": "draft",
+        "preview_path": f"/e/{tenant_slug}/{event.slug}?draft={token}",
+        "preview_token": token,
+    }
+
+
+@router.post("/events/{event_id}/design/publish")
+async def publish_design(
+    event_id: uuid.UUID, ctx: AuthContext = Depends(tenant_admin_context)
+) -> dict:
+    """Promote the draft to the live site (config), then clear it."""
+    event = await _get_event(ctx, event_id)
+    draft = event.design_draft or {}
+    if not draft.get("design"):
+        raise ApiError(409, "no_draft", "目前沒有待發佈的設計草稿。")
+    event.config = apply_design(event.config or {}, event, draft["design"])
+    event.design_draft = None
+    await _audit_admin(ctx, "event.design_published", "event", event.id, {"slug": event.slug})
+    await ctx.session.commit()
+    return {"status": "published"}
+
+
+@router.delete("/events/{event_id}/design", status_code=204)
+async def discard_design_draft(
+    event_id: uuid.UUID, ctx: AuthContext = Depends(tenant_admin_context)
+) -> None:
+    event = await _get_event(ctx, event_id)
+    event.design_draft = None
     await ctx.session.commit()
 
 

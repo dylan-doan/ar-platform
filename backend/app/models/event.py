@@ -27,6 +27,10 @@ class Event(Base, UUIDPk, Timestamped):
     description: Mapped[str] = mapped_column(Text, default="")
     event_type: Mapped[str] = mapped_column(String(32))  # city | hiking | shopping
     config: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    # Unpublished design uploaded through the JSON round-trip (see
+    # services/site_design.py): {"design": {...}, "token": "...", "updated_at": "..."}.
+    # Kept OUTSIDE config because config ships wholesale in the public payload.
+    design_draft: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     starts_at: Mapped[datetime | None] = mapped_column(nullable=True)
     ends_at: Mapped[datetime | None] = mapped_column(nullable=True)

@@ -28,9 +28,11 @@ export async function generateMetadata({ params }) {
   } catch { return { title: '活動' }; }
 }
 
-export default async function Page({ params }) {
+export default async function Page({ params, searchParams }) {
   let site;
-  try { site = await siteGet(params.tenant, params.event); }
+  // ?draft=<token> also works on sub-pages, so a draft that ADDS a page is
+  // previewable at its final URL before publish.
+  try { site = await siteGet(params.tenant, params.event, searchParams?.draft); }
   catch { notFound(); }
   const page = findPage(site, params.page);
   if (!page) notFound();

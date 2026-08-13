@@ -1,0 +1,222 @@
+{
+  "zoustec_design": 1,
+  "puck": {
+    "root": {
+      "props": {
+        "theme": "warm",
+        "customCss": ".site-body h2 { letter-spacing: .02em }"
+      }
+    },
+    "content": [
+      {
+        "type": "Banner",
+        "props": {
+          "title": "老街尋寶・集章之旅",
+          "subtitle": "掃描街角立牌 QR，收集 5 枚印章換限定紀念品",
+          "height": "l",
+          "overlay": "dark",
+          "align": "center",
+          "ctaLabel": "查看活動指南",
+          "ctaHref": "/guide",
+          "style": {},
+          "id": "Banner-1"
+        }
+      },
+      {
+        "type": "StatsBand",
+        "props": {
+          "style": {},
+          "id": "StatsBand-2"
+        }
+      },
+      {
+        "type": "Heading",
+        "props": {
+          "text": "活動介紹",
+          "level": "h2",
+          "align": "left",
+          "style": {},
+          "id": "Heading-3"
+        }
+      },
+      {
+        "type": "Paragraph",
+        "props": {
+          "text": "跟著地圖走訪五個歷史街區，每一站都有專屬的 AR 立牌。用手機掃描 QR，3D 吉祥物就會出現在你眼前 — 拍照打卡即完成收章。",
+          "align": "left",
+          "style": {},
+          "id": "Paragraph-4"
+        }
+      },
+      {
+        "type": "TaskStops",
+        "props": {
+          "title": "任務停靠點",
+          "style": {},
+          "id": "TaskStops-5"
+        }
+      },
+      {
+        "type": "TextCard",
+        "props": {
+          "title": "文化小知識",
+          "text": "老街建於 1887 年，紅磚拱廊是當年商行的標誌。活動的五個站點正是五間百年老舖的原址。",
+          "style": {},
+          "id": "TextCard-6"
+        }
+      },
+      {
+        "type": "Notice",
+        "props": {
+          "title": "注意事項",
+          "tone": "info",
+          "items": [
+            {
+              "text": "活動期間：每日 10:00 – 18:00"
+            },
+            {
+              "text": "請於現場立牌掃描，遠端掃描無法收章"
+            },
+            {
+              "text": "獎品數量有限，換完為止"
+            }
+          ],
+          "style": {},
+          "id": "Notice-7"
+        }
+      }
+    ],
+    "zones": {}
+  },
+  "pages": [
+    {
+      "slug": "guide",
+      "title": "活動指南",
+      "nav": true,
+      "data": {
+        "root": {
+          "props": {}
+        },
+        "content": [
+          {
+            "type": "Heading",
+            "props": {
+              "text": "怎麼玩",
+              "level": "h2",
+              "align": "left",
+              "style": {},
+              "id": "Heading-8"
+            }
+          },
+          {
+            "type": "Paragraph",
+            "props": {
+              "text": "① 點「開始旅程」用 LINE 登入 → ② 打開地圖選一個站點 → ③ 到現場掃描立牌 QR → ④ 3D 吉祥物出現後拍照，即完成一章。",
+              "align": "left",
+              "style": {},
+              "id": "Paragraph-9"
+            }
+          },
+          {
+            "type": "InfoList",
+            "props": {
+              "title": "路線資訊",
+              "items": [
+                {
+                  "label": "總距離",
+                  "value": "1.8 km"
+                },
+                {
+                  "label": "所需時間",
+                  "value": "約 90 分鐘"
+                },
+                {
+                  "label": "站點數",
+                  "value": "5 站"
+                }
+              ],
+              "style": {},
+              "id": "InfoList-10"
+            }
+          }
+        ],
+        "zones": {}
+      }
+    },
+    {
+      "slug": "access",
+      "title": "交通方式",
+      "nav": true,
+      "data": {
+        "root": {
+          "props": {}
+        },
+        "content": [
+          {
+            "type": "Heading",
+            "props": {
+              "text": "如何抵達",
+              "level": "h2",
+              "align": "left",
+              "style": {},
+              "id": "Heading-11"
+            }
+          },
+          {
+            "type": "Paragraph",
+            "props": {
+              "text": "捷運老街站 2 號出口步行 3 分鐘即達第一站。自行開車請停周邊收費停車場。",
+              "align": "left",
+              "style": {},
+              "id": "Paragraph-12"
+            }
+          }
+        ],
+        "zones": {}
+      }
+    }
+  ],
+  "header": {
+    "content": [
+      {
+        "type": "SiteHeader",
+        "props": {
+          "logo": "",
+          "title": "",
+          "background": "brand",
+          "bgColor": "",
+          "textColor": "",
+          "sticky": "sticky",
+          "showJoin": "",
+          "joinLabel": "開始旅程",
+          "id": "SiteHeader-13"
+        }
+      }
+    ],
+    "root": {
+      "props": {}
+    },
+    "zones": {}
+  },
+  "footer": {
+    "content": [
+      {
+        "type": "SiteFooter",
+        "props": {
+          "about": "由老街商圈發展協會主辦，Zoustec 提供技術支援。",
+          "showNav": "",
+          "columns": [],
+          "copyright": "© 2026 老街商圈發展協會",
+          "background": "light",
+          "bgColor": "",
+          "textColor": "",
+          "id": "SiteFooter-14"
+        }
+      }
+    ],
+    "root": {
+      "props": {}
+    },
+    "zones": {}
+  }
+}

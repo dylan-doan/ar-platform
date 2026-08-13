@@ -231,13 +231,51 @@ lại để dùng luồng mới. Prod **nên** set `SECRET_ENCRYPTION_KEY` (bắ
 muốn xem lại key khách) + `PLATFORM_SERVICE_KEY` (tùy chọn, để đi đường keyed);
 tenant tạo trước session này chưa có key → bấm 重新產生金鑰.
 
+## 3f. Session 2026-08-13 — vòng đời design JSON: download → sửa local → upload lại
+
+**Quyết định kiến trúc đã chốt** (sau khi phân tích HTML thuần vs Next.js vs JSON):
+chất liệu đi vòng upload/download/edit là **JSON design thuần data** (`{puck,
+pages, header, footer}` — không chứa code); Next.js chỉ là máy render dùng
+chung; zip Next.js/static export giữ vai "xuất bản đi nơi khác" một chiều.
+Lý do: JSON giữ ngữ nghĩa block → builder mở sửa tiếp được, validate được,
+smart block bind dữ liệu sống tiếp được; HTML upload ngược = mất cấu trúc +
+XSS + 2 nguồn chân lý đánh nhau.
+
+| Thay đổi | Chi tiết |
+|---|---|
+| `app/services/site_design.py` (mới) + migration `0011` | Chốt chặn server: whitelist 16 block type (walk đệ quy content/zones/pages/header/footer — mirror `siteConfig.components`, test nodb pin cả 2 phía), strip field event-owned (title/slug/reward…), check media `/media/db/{id}` thuộc tenant (RLS làm sạch tự nhiên), giới hạn 1MB. Cột `events.design_draft` JSONB **tách khỏi config** (config ship nguyên si ra public payload — draft nằm trong đó là lộ trước khi publish) |
+| `PUT /api/admin/events/{id}/design` | Upload design (nhận cả file 匯出設計 JSON lẫn `data/site.json` cũ) → validate → lưu **draft + preview token** (`secrets.token_urlsafe`), trả `preview_path=/e/{tenant}/{event}?draft={token}`. KHÔNG đụng site sống |
+| `POST .../design/publish`, `DELETE .../design`, `GET .../design` | Publish = `apply_design()` merge draft vào config (re-inject field event-owned — cùng helper với preview nên 2 đường không thể lệch) + xóa draft; GET trả design hiện tại đúng shape file export (cho tooling) |
+| `?draft=<token>` xuyên suốt | `build_site_payload(draft_token=)` — token đúng (compare_digest) mới overlay draft, sai = **404 cứng** không fallback; nối qua `/api/public/site` + `/api/headless/site` + 3 trang `/e/*` (searchParams). Preview được cả trang con MỚI thêm trong draft |
+| PATCH event validate | `update_event` giờ chạy `validate_design` khi config có `puck` — gọi API thẳng cũng không tuồn được block lạ (trước đây chỉ client validate) |
+| Marker file | 匯出設計 JSON thêm `"zoustec_design": 1` (nhận diện file + migrate schema tương lai) |
+| **`site-preview/`** (repo root, mới) | Viewer WYSIWYG **dùng chung mọi khách** thay cho zip từng khách (hết drift renderer): dev bỏ `data/design.json` vào → `npm run dev` → sửa JSON là thấy ngay bằng đúng 9 file renderer + dữ liệu sống từ `/api/public/site` (overlay client mirror `apply_design`); không có `ZOUSTEC_TENANT_SLUG` thì render offline bằng stub. `npm run sync` copy lại renderer từ platform (danh sách = SHARED trong export route). README zh-TW kèm curl mẫu PUT/publish |
+
+Kiểm chứng: backend **98/98** (+10: validator nodb + vòng draft/preview/publish
+/media RLS/PATCH gate); build platform + build viewer OK (First Load 205 kB
+trùng `/e/[tenant]` — đúng 1 cây component); smoke viewer offline: banner/
+customCss/trang con từ JSON local render đủ.
+
+Còn mở (chưa làm): UI quản lý draft trong designer (hiện draft chỉ thao tác
+qua API/curl — designer vẫn import/export JSON như cũ); nav trong preview
+không tự mang `?draft=` (bấm link là về bản sống — muốn xem trang khác của
+draft phải tự thêm token vào URL); kho theme upload qua console (bảng
+`site_templates`) vẫn ở mục 5.
+
 ## 4. Kiến trúc — điểm không được quên
 
 - **Site khách = 1 khung + 1 API + 1 key**: `EventSite.jsx` và bạn bè là
   **file dùng chung** — export copy nguyên bản. Đừng import module chỉ có ở
-  platform vào chúng (phải tồn tại cả trong `export-template/`). Mọi dữ liệu
-  site đi qua `/api/headless/site/...`, build payload ở
+  platform vào chúng (phải tồn tại cả trong `export-template/` và
+  `site-preview/` — chạy `npm run sync` trong site-preview sau khi sửa).
+  Mọi dữ liệu site đi qua `/api/headless/site/...`, build payload ở
   `app/services/site_payload.py`. Sửa shape thì sửa 1 chỗ đó.
+- **Thêm block mới = sửa 3 chỗ cùng lúc**: `lib/site-blocks.jsx`
+  (siteConfig.components) + `ALLOWED_BLOCKS` trong
+  `backend/app/services/site_design.py` + `npm run sync` ở site-preview.
+  Test `tests/nodb/test_site_design.py` pin danh sách — quên là đỏ.
+  Draft design nằm ở cột `events.design_draft`, KHÔNG được nhét vào
+  `event.config` (config ship nguyên si ra public payload).
 - **`SECRET_ENCRYPTION_KEY` là vĩnh viễn**: rotate = toàn bộ API key khách
   không decrypt được nữa (phải phát lại từng khách).
 - **RLS pinned connection**: `_guc_session()` trong `backend/app/db/session.py`

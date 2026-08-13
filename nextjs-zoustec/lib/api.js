@@ -92,17 +92,20 @@ export function lastSiteFetchInfo() {
  * @param tenant tenant slug
  * @param event  event slug, or undefined for the domain root (the tenant's
  *   homepage rule then decides: single event, pinned event, or landing list)
+ * @param draft  preview token from PUT /api/admin/events/{id}/design — swaps
+ *   in the unpublished design draft (wrong/expired token = 404)
  */
-export async function siteGet(tenant, event) {
+export async function siteGet(tenant, event, draft) {
   const suffix = event ? `/${tenant}/${encodeURIComponent(event)}` : `/${tenant}`;
+  const query = draft ? `?draft=${encodeURIComponent(draft)}` : '';
   const serviceKey = process.env.PLATFORM_SERVICE_KEY;
   // Without a service key configured, use the un-keyed alias rather than
   // failing: both routes build the payload from the same module
   // (app/services/site_payload.py), so the rendered site is identical. This
   // keeps customer sites serving on deploys where the env var is not set yet.
-  const path = serviceKey
+  const path = (serviceKey
     ? `/api/headless/site${suffix}`
-    : `/api/public/site${suffix}`;
+    : `/api/public/site${suffix}`) + query;
   const started = Date.now();
   try {
     const data = await apiFetch(

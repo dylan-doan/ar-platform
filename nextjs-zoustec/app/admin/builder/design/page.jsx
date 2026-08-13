@@ -263,7 +263,9 @@ export default function Page() {
   }
 
   function exportDesignJson() {
-    const design = currentDesign();
+    // zoustec_design marks the file as ours (backend + future migrations key
+    // off it); the design itself is pure data — no code travels in this file.
+    const design = { zoustec_design: 1, ...currentDesign() };
     downloadBlob(new Blob([JSON.stringify(design, null, 2)], { type: 'application/json' }), `${event?.slug || 'site'}-design.json`);
   }
 

@@ -64,7 +64,9 @@ async def resolve_domain(domain: str) -> BrandingOut:
 
 @router.get("/site/{tenant_slug}")
 @router.get("/site/{tenant_slug}/{event_slug}")
-async def public_event_site(tenant_slug: str, event_slug: str | None = None) -> dict:
+async def public_event_site(
+    tenant_slug: str, event_slug: str | None = None, draft: str | None = None
+) -> dict:
     """Un-keyed alias of GET /api/headless/site/{tenant}/{event}.
 
     Customer sites read the keyed headless endpoint so the platform-hosted and
@@ -72,10 +74,13 @@ async def public_event_site(tenant_slug: str, event_slug: str | None = None) -> 
     (services/site_payload.py), so the response is byte-identical; it serves
     older exported bundles, bookmarks, and the platform frontend whenever
     PLATFORM_SERVICE_KEY is not configured.
+
+    `draft` is the preview token minted by PUT /api/admin/events/{id}/design —
+    it swaps in the unpublished design for this one render (wrong token = 404).
     """
     async with platform_admin_session() as session:
         tenant = await resolve_tenant(session, tenant_slug)
-        return await build_site_payload(session, tenant, event_slug)
+        return await build_site_payload(session, tenant, event_slug, draft_token=draft)
 
 
 @router.get("/events", response_model=list[PublicEventOut])

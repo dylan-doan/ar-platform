@@ -11,11 +11,14 @@ and the designer's content config. Safe for an unauthenticated reader; the key
 gates *which tenant* you may read, not the sensitivity of the fields.
 """
 
+import secrets
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ApiError
 from app.models import Event, Task, Tenant
+from app.services.site_design import apply_design
 
 
 def site_branding(tenant: Tenant) -> dict:
@@ -47,7 +50,10 @@ async def resolve_tenant(session: AsyncSession, tenant_slug: str) -> Tenant:
 
 
 async def build_site_payload(
-    session: AsyncSession, tenant: Tenant, event_slug: str | None = None
+    session: AsyncSession,
+    tenant: Tenant,
+    event_slug: str | None = None,
+    draft_token: str | None = None,
 ) -> dict:
     """Everything the public event website renders, in one round-trip.
 
@@ -160,6 +166,18 @@ async def build_site_payload(
         )
     ).all()
 
+    # Draft preview: an UNPUBLISHED design renders only when the caller
+    # presents the token minted at upload (PUT .../design). A wrong/expired
+    # token is a hard 404, never a silent fallback to the live design — a
+    # dev must not mistake the published site for their draft.
+    config = event.config or {}
+    if draft_token:
+        draft = event.design_draft or {}
+        stored = str(draft.get("token") or "")
+        if not stored or not secrets.compare_digest(stored, draft_token):
+            raise ApiError(404, "draft_not_found", "預覽連結已失效，請重新上傳設計。")
+        config = apply_design(config, event, draft.get("design") or {})
+
     return {
         "mode": "event",
         "branding": site_branding(tenant),
@@ -169,7 +187,7 @@ async def build_site_payload(
             "name": event.name,
             "description": event.description,
             "event_type": event.event_type,
-            "config": event.config or {},
+            "config": config,
             "reward_threshold": event.reward_threshold,
             "reward_name": event.reward_name,
         },

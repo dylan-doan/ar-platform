@@ -27,9 +27,11 @@ export async function generateMetadata({ params }) {
   } catch { return { title: '活動' }; }
 }
 
-export default async function Page({ params }) {
+export default async function Page({ params, searchParams }) {
   let site;
-  try { site = await siteGet(params.tenant, params.event); }
+  // ?draft=<token> renders the unpublished design draft (design round-trip
+  // preview); a wrong token 404s rather than silently showing the live site.
+  try { site = await siteGet(params.tenant, params.event, searchParams?.draft); }
   catch { notFound(); }
   return <EventSite site={site} linkBase={linkBase(params.tenant)} />;
 }

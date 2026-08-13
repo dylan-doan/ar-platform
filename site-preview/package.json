@@ -1,0 +1,20 @@
+{
+  "name": "zoustec-site-preview",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local WYSIWYG viewer for Zoustec design JSON — one shared tool for every customer, no per-site export needed.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "sync": "node scripts/sync.mjs"
+  },
+  "dependencies": {
+    "@measured/puck": "^0.20.2",
+    "lucide-react": "0.441.0",
+    "next": "14.2.5",
+    "qrcode": "^1.5.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

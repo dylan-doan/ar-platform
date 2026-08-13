@@ -26,9 +26,10 @@ export async function generateMetadata({ params }) {
   } catch { return { title: '活動' }; }
 }
 
-export default async function Page({ params }) {
+export default async function Page({ params, searchParams }) {
   let site;
-  try { site = await siteGet(params.tenant); }
+  // ?draft=<token>: unpublished-design preview (only applies in event mode).
+  try { site = await siteGet(params.tenant, undefined, searchParams?.draft); }
   catch { notFound(); }
   const base = linkBase(params.tenant);
   if (site.mode === 'landing') return <TenantLanding site={site} linkBase={base} />;

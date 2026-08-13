@@ -85,6 +85,7 @@ async def resolve_export_key(x_export_key: str | None) -> ExportKey:
 async def headless_site(
     tenant_slug: str,
     event_slug: str | None = None,
+    draft: str | None = None,
     x_export_key: str | None = Header(default=None),
 ) -> dict:
     """The EVENT WEBSITE payload — the SINGLE path both customer sites read.
@@ -102,7 +103,7 @@ async def headless_site(
     if is_platform_service_key(x_export_key):
         async with platform_admin_session() as session:
             tenant = await resolve_tenant(session, tenant_slug)
-            return await build_site_payload(session, tenant, event_slug)
+            return await build_site_payload(session, tenant, event_slug, draft_token=draft)
 
     key = await resolve_export_key(x_export_key)
 
@@ -115,7 +116,7 @@ async def headless_site(
         if tenant is None or tenant.slug != tenant_slug or not tenant.is_active:
             raise ApiError(403, "export_key_scope", "匯出金鑰不適用於此租戶。")
 
-        payload = await build_site_payload(session, tenant, event_slug)
+        payload = await build_site_payload(session, tenant, event_slug, draft_token=draft)
 
         if key.event_id is not None:
             resolved = payload.get("event", {}).get("id")
