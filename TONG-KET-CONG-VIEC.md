@@ -286,6 +286,37 @@ Ranh giới giữ nguyên: HTML upload KHÔNG bao giờ được serve nguyên x
 luôn bị parse về design JSON có validate/sanitize rồi mới render bằng
 renderer chung (không RCE, không XSS, builder vẫn mở sửa tiếp được).
 
+> ⚠️ **3f-bis đã bị THAY THẾ ở 3g** (cùng ngày): user chốt mô hình mới theo
+> `html_website_builder_deployment_platform.md` — không dịch ngược HTML nữa.
+
+## 3g. Session 2026-08-13 (tiếp) — TÁI CẤU TRÚC: website tĩnh theo VERSION
+
+User đưa tài liệu `html_website_builder_deployment_platform.md` +
+`website_builder_static_deployment_architecture.md` và chốt xây theo mô hình
+mới: platform generate site tĩnh thật (HTML/CSS/JS/assets) → user tải zip →
+sửa tự do bằng VS Code (kể cả JS) → upload → **version mới lưu NGUYÊN VĂN**
+(doc §26: không reverse-engineer) → preview → publish; publish version cũ =
+rollback. Chi tiết đầy đủ: **TRIEN-KHAI-WEBSITE-TINH.md**.
+
+| Mảnh | Chi tiết |
+|---|---|
+| DB (migration 0012) | `site_versions` (immutable, source_type generated/user_upload, hash/size/count, RLS) + `site_files` (bytea từng file, RLS) + `events.site_version_id` = pointer production. Publish/rollback = flip pointer (1 UPDATE, atomic) — bản dịch DB của "releases/ + current symlink" trong doc |
+| Generator `app/services/site_static.py` | design JSON → `index.html`, `{page}.html`, `css/style.css` (skin + customCss), `js/site-config.js` (apiBase/tenant/event/**siteKey** — key per-tenant sẵn có), `js/main.js` (fetch `/api/public/site/...` với `X-Site-Key`, cập nhật vùng `[data-zs]`: stats/tasks/LIFF link — data independence doc §17), `assets/*` (ảnh media_assets đóng gói THẬT vào zip, URL tương đối). HTML sạch không annotation |
+| Upload validate | traversal, zip bomb (≤300 file/≤10MB file/≤40MB tổng, đọc byte thật), whitelist extension tĩnh, bắt buộc index.html, `.website/manifest.json` nhận diện project (sai → 422), tự bóc 1 lớp folder bọc |
+| Endpoints admin | `POST .../site/generate`, `GET .../site/versions`, `GET .../versions/{vid}/download` (zip + manifest), `POST .../site/upload`, `POST .../versions/{vid}/publish`, `POST .../site/unpublish`, `DELETE version` (409 nếu đang online). Audit đủ |
+| Serve `app/api/sites.py` | `/sites/{tenant}/{event}/...` (production) + `/sites/preview/{version_id}/...` (UUID = token). **Mọi HTML mang CSP `sandbox allow-scripts...`** — JS tùy ý của khách chạy trong opaque origin, không đụng được session admin kể cả khi qua proxy frontend. Frontend proxy `/sites/*` trong next.config.mjs |
+| CORS | `PublicReadCors` preflight mở đúng 1 header `X-Site-Key` (public identifier, doc §19) — X-Export-Key/credentials vẫn chặn |
+| Gỡ code cũ | `GET/PUT /design/html` + `site_html.py` (dịch ngược) XÓA; sanitizer tách ra `html_sanitizer.py` (Builder Mode HtmlBlock vẫn dùng); bs4 khỏi requirements. Design JSON lifecycle, export Next.js, SSR `/e/` GIỮ NGUYÊN |
+| UI builder | Khu "靜態網站" thay "HTML 編輯": 產生網站版本 / 上傳 ZIP / danh sách version (預覽·下載·上線, badge 線上) / 開啟正式網站 / rollback = 上線 version cũ |
+
+Kiểm chứng: **116/116 test** (mới: `tests/nodb/test_site_static.py` —
+layout/asset/manifest/traversal/zip-bomb/extension; `tests/test_site_versions_api.py`
+— generate→preview→publish→serve qua `/sites/`, upload verbatim (script user
+GIỮ NGUYÊN), rollback, 409 xóa version online, tenant-scoping RLS); frontend
+`npm run build` pass. Chưa làm: domain khách trỏ thẳng site tĩnh, key
+per-event + ràng buộc domain, theme catalog riêng (ghi ở
+TRIEN-KHAI-WEBSITE-TINH.md §6).
+
 ## 4. Kiến trúc — điểm không được quên
 
 - **Site khách = 1 khung + 1 API + 1 key**: `EventSite.jsx` và bạn bè là

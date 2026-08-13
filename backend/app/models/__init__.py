@@ -7,6 +7,7 @@ from app.models.stamp import Stamp, RewardClaim
 from app.models.audit import AuditLog
 from app.models.model3d import ExportKey, Model3DJob
 from app.models.media import MediaAsset
+from app.models.site import SiteFile, SiteVersion
 
 __all__ = [
     "Base",
@@ -21,4 +22,6 @@ __all__ = [
     "Model3DJob",
     "ExportKey",
     "MediaAsset",
+    "SiteVersion",
+    "SiteFile",
 ]

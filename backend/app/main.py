@@ -17,7 +17,7 @@ import os
 
 from fastapi.staticfiles import StaticFiles
 
-from app.api import admin, auth, headless, me, model3d, platform_admin, public
+from app.api import admin, auth, headless, me, model3d, platform_admin, public, sites
 from app.core.config import get_settings
 from app.core.errors import ApiError, register_error_handlers
 
@@ -30,9 +30,11 @@ class PublicReadCors:
     to the listed prefixes and leaves every other path to the credentialed
     CORSMiddleware above.
 
-    Deliberately never emits Access-Control-Allow-Credentials, and answers the
-    preflight without Allow-Headers beyond the simple ones — a caller therefore
-    cannot send X-Export-Key or a cookie cross-origin through this path.
+    Deliberately never emits Access-Control-Allow-Credentials. The preflight
+    allows exactly one extra header, X-Site-Key — the per-tenant PUBLIC site
+    identifier that generated static sites send from customer domains (it is
+    an identifier, not a credential — doc §19). X-Export-Key and cookies still
+    cannot travel cross-origin through this path.
     """
 
     def __init__(self, app: ASGIApp, path_prefixes: tuple[str, ...]) -> None:
@@ -60,6 +62,7 @@ class PublicReadCors:
                     "headers": [
                         (b"access-control-allow-origin", b"*"),
                         (b"access-control-allow-methods", b"GET, HEAD, OPTIONS"),
+                        (b"access-control-allow-headers", b"X-Site-Key"),
                         (b"access-control-max-age", b"600"),
                         (b"content-length", b"0"),
                     ],
@@ -166,6 +169,8 @@ def create_app() -> FastAPI:
     app.include_router(model3d.router)
     app.include_router(headless.router)
     app.include_router(platform_admin.router)
+    # Customer static websites (published versions + pre-publish previews).
+    app.include_router(sites.router)
 
     # In-DB media (uploads that must survive ephemeral disks). Registered
     # BEFORE the /media static mount — Starlette matches in order, so /media/db/*

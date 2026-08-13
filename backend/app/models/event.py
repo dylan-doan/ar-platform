@@ -31,6 +31,14 @@ class Event(Base, UUIDPk, Timestamped):
     # services/site_design.py): {"design": {...}, "token": "...", "updated_at": "..."}.
     # Kept OUTSIDE config because config ships wholesale in the public payload.
     design_draft: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Static website currently in production (served at /sites/{tenant}/{event}).
+    # NULL = no static site published. Publish/rollback = repointing this column
+    # (atomic single-column update); versions themselves are immutable.
+    site_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("site_versions.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     starts_at: Mapped[datetime | None] = mapped_column(nullable=True)
     ends_at: Mapped[datetime | None] = mapped_column(nullable=True)

@@ -11,13 +11,10 @@ httpx==0.28.1
 structlog==25.1.0
 python-multipart==0.0.20
 
+# HTML sanitizer for designer-authored HtmlBlock content (html_sanitizer.py)
+nh3>=0.2
+
 # dev/test
 pytest==8.3.4
 pytest-asyncio==0.25.3
 psycopg2-binary==2.9.10
-beautifulsoup4>=4.12
-nh3>=0.2
-beautifulsoup4>=4.12
-nh3>=0.2
-beautifulsoup4>=4.12
-nh3>=0.2

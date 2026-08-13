@@ -125,8 +125,8 @@ export default function Page() {
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState('');
   const [error, setError] = useState('');
-  // Pending draft from an HTML upload: {preview_path} — published explicitly.
-  const [htmlDraft, setHtmlDraft] = useState(null);
+  // Static-website versions: {current_version_id, site_path, versions:[...]}.
+  const [site, setSite] = useState(null);
   // Latest edits per document (Puck onChange) — survives tab switches
   // without forcing a save on every switch.
   const draftsRef = useRef({});
@@ -140,6 +140,7 @@ export default function Page() {
         const ev = events.find((e) => e.id === params.get('event')) || events[0];
         setEvent(ev);
         setTasks(await adminApi(`/api/admin/events/${ev.id}/tasks`));
+        try { setSite(await adminApi(`/api/admin/events/${ev.id}/site/versions`)); } catch { /* optional */ }
         // Existing Puck document wins (even if emptied on purpose); otherwise
         // migrate the legacy sections. v1 docs (pre smart blocks) get the
         // live stats/tasks blocks prepended so the v2 layout loses nothing.
@@ -264,65 +265,72 @@ export default function Page() {
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
-  /** END-USER HTML surface: the site as editable .html files (zip). */
-  async function exportHtml() {
+  // ── Static-website versions (generate → preview → publish; upload → new
+  //    version; publishing an older version IS the rollback) ────────────
+
+  async function refreshSite() {
+    try { setSite(await adminApi(`/api/admin/events/${event.id}/site/versions`)); } catch { /* keep last */ }
+  }
+
+  /** Render the PUBLISHED design into static HTML/CSS/JS as a new version. */
+  async function generateSite() {
     if (!event || busy) return;
     setBusy(true); setError('');
     try {
-      const s = adminSession.get('tenant');
-      const res = await fetch(`/api/admin/events/${event.id}/design/html`, {
-        headers: { authorization: `Bearer ${s?.token || ''}` },
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d?.error?.message || `HTTP ${res.status}`);
-      }
-      const name = (res.headers.get('content-disposition')?.match(/filename="(.+)"/) || [])[1] || 'site-html.zip';
-      downloadBlob(await res.blob(), name);
-      setFlash('已匯出 HTML 檔案 ✓'); setTimeout(() => setFlash(''), 2500);
+      const d = await adminApi(`/api/admin/events/${event.id}/site/generate`, { method: 'POST' });
+      await refreshSite();
+      window.open(d.preview_path, '_blank', 'noopener');
+      setFlash(`已產生 v${d.version_number} — 預覽確認後按「上線」`); setTimeout(() => setFlash(''), 5000);
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
-  /** Edited HTML back in (zip or single index.html) → server parses,
-   * sanitizes free-form markup, stores a DRAFT and hands back a preview
-   * link — the live site changes only on 發佈草稿. */
-  async function importHtml(file) {
+  /** Edited website zip → new version, stored verbatim (never parsed back). */
+  async function uploadSiteZip(file) {
     if (!file || !event || busy) return;
     setBusy(true); setError('');
     try {
       const s = adminSession.get('tenant');
       const fd = new FormData();
       fd.append('file', file);
-      const res = await fetch(`/api/admin/events/${event.id}/design/html`, {
-        method: 'PUT',
+      const res = await fetch(`/api/admin/events/${event.id}/site/upload`, {
+        method: 'POST',
         headers: { authorization: `Bearer ${s?.token || ''}` },
         body: fd,
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d?.error?.message || `HTTP ${res.status}`);
-      setHtmlDraft(d);
+      await refreshSite();
       window.open(d.preview_path, '_blank', 'noopener');
-      setFlash('HTML 已上傳為草稿 — 請在預覽分頁確認後按「發佈草稿」');
-      setTimeout(() => setFlash(''), 5000);
+      setFlash(`已上傳為 v${d.version_number} — 預覽確認後按「上線」`); setTimeout(() => setFlash(''), 5000);
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
-  async function publishHtmlDraft() {
+  async function publishSiteVersion(versionId) {
+    if (!event || busy) return;
+    setBusy(true); setError('');
+    try {
+      const d = await adminApi(`/api/admin/events/${event.id}/site/versions/${versionId}/publish`, { method: 'POST' });
+      await refreshSite();
+      setFlash(`v${d.version_number} 已上線 ✓`); setTimeout(() => setFlash(''), 3000);
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  async function downloadSiteVersion(v) {
     if (!event || busy) return;
     setBusy(true); setError('');
     try {
       const s = adminSession.get('tenant');
-      const res = await fetch(`/api/admin/events/${event.id}/design/publish`, {
-        method: 'POST',
+      const res = await fetch(`/api/admin/events/${event.id}/site/versions/${v.id}/download`, {
         headers: { authorization: `Bearer ${s?.token || ''}` },
       });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d?.error?.message || `HTTP ${res.status}`);
-      setHtmlDraft(null);
-      // The published design now lives server-side; reload so the canvas
-      // reflects it instead of the stale pre-upload documents.
-      window.location.reload();
-    } catch (e) { setError(e.message); setBusy(false); }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d?.error?.message || `HTTP ${res.status}`);
+      }
+      const name = (res.headers.get('content-disposition')?.match(/filename="(.+)"/) || [])[1] || 'website.zip';
+      downloadBlob(await res.blob(), name);
+      setFlash('已下載網站 ZIP ✓'); setTimeout(() => setFlash(''), 2500);
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
   function exportDesignJson() {
@@ -509,25 +517,40 @@ export default function Page() {
           </label>
         </div>
 
-        {/* End-user HTML round-trip: download .html files, edit anywhere,
-            upload back → draft + preview, publish to go live */}
+        {/* Static website: generate a version from the design, download the
+            HTML/CSS/JS zip, edit anywhere, upload back as a NEW version —
+            versions are immutable; 上線 an older one = rollback. */}
         <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: '10px', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-subtle)', margin: '0 4px 2px' }}>HTML 編輯</div>
-          <button onClick={exportHtml} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '9px 10px', borderRadius: '9px', border: '1px solid var(--border-default)', background: '#fff', color: 'var(--text-body)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}>
-            <span style={{ fontSize: '14px', display: 'inline-flex', lineHeight: 0, color: 'var(--primary-600)' }}><Icon name={busy ? 'loader' : 'download'} /></span>匯出 HTML（可直接編輯）
+          <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-subtle)', margin: '0 4px 2px' }}>靜態網站</div>
+          <button onClick={generateSite} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '9px 10px', borderRadius: '9px', border: '1px solid var(--border-default)', background: '#fff', color: 'var(--text-body)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}>
+            <span style={{ fontSize: '14px', display: 'inline-flex', lineHeight: 0, color: 'var(--primary-600)' }}><Icon name={busy ? 'loader' : 'globe'} /></span>產生網站版本（HTML/CSS/JS）
           </button>
           <label style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '9px 10px', borderRadius: '9px', border: '1.5px dashed var(--border-default)', color: 'var(--text-body)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-            <span style={{ fontSize: '14px', display: 'inline-flex', lineHeight: 0, color: 'var(--primary-600)' }}><Icon name="upload" /></span>匯入 HTML（zip 或 index.html）
-            <input type="file" accept=".zip,.html,application/zip,text/html" style={{ display: 'none' }} onChange={(e) => { importHtml(e.target.files?.[0]); e.target.value = ''; }} />
+            <span style={{ fontSize: '14px', display: 'inline-flex', lineHeight: 0, color: 'var(--primary-600)' }}><Icon name="upload" /></span>上傳修改後的網站 ZIP
+            <input type="file" accept=".zip,application/zip" style={{ display: 'none' }} onChange={(e) => { uploadSiteZip(e.target.files?.[0]); e.target.value = ''; }} />
           </label>
-          {htmlDraft && (
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <a href={htmlDraft.preview_path} target="_blank" rel="noopener noreferrer" style={{ flex: 1, textAlign: 'center', padding: '8px 10px', borderRadius: '9px', border: '1px solid var(--border-default)', background: '#fff', color: 'var(--text-body)', fontSize: '12px', fontWeight: 700, textDecoration: 'none' }}>
-                開啟預覽
-              </a>
-              <button onClick={publishHtmlDraft} disabled={busy} style={{ flex: 1, padding: '8px 10px', borderRadius: '9px', border: 'none', background: 'var(--primary-600)', color: '#fff', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-                發佈草稿
-              </button>
+          {site?.current_version_id && (
+            <a href={site.site_path} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 10px', borderRadius: '9px', border: '1px solid var(--primary-200)', background: 'var(--primary-50)', color: 'var(--primary-700)', fontSize: '12px', fontWeight: 700, textDecoration: 'none' }}>
+              <span style={{ fontSize: '14px', display: 'inline-flex', lineHeight: 0 }}><Icon name="external-link" /></span>開啟正式網站
+            </a>
+          )}
+          {(site?.versions || []).slice(0, 5).map((v) => (
+            <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 8px', borderRadius: '8px', border: '1px solid var(--border-subtle)', background: '#fff', fontSize: '11.5px' }}>
+              <span style={{ fontWeight: 800, color: 'var(--text-strong)' }}>v{v.version_number}</span>
+              <span style={{ color: 'var(--text-subtle)', fontSize: '10px' }}>{v.source_type === 'user_upload' ? '上傳' : '產生'}</span>
+              {v.is_current && <span style={{ fontSize: '9.5px', fontWeight: 700, color: '#16A34A', background: '#DCFCE7', padding: '2px 6px', borderRadius: '9999px' }}>線上</span>}
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: '2px' }}>
+                <a href={v.preview_path} target="_blank" rel="noopener noreferrer" title="預覽" style={{ padding: '3px', color: 'var(--primary-600)', display: 'inline-flex', lineHeight: 0 }}><Icon name="eye" /></a>
+                <button onClick={() => downloadSiteVersion(v)} disabled={busy} title="下載 ZIP" style={{ border: 'none', background: 'none', padding: '3px', color: 'var(--primary-600)', cursor: 'pointer', display: 'inline-flex', lineHeight: 0 }}><Icon name="download" /></button>
+                {!v.is_current && (
+                  <button onClick={() => publishSiteVersion(v.id)} disabled={busy} title="上線此版本" style={{ border: 'none', background: 'none', padding: '3px', color: 'var(--primary-600)', cursor: 'pointer', display: 'inline-flex', lineHeight: 0 }}><Icon name="rocket" /></button>
+                )}
+              </span>
+            </div>
+          ))}
+          {(site?.versions?.length || 0) > 0 && (
+            <div style={{ fontSize: '10px', color: 'var(--text-subtle)', lineHeight: 1.5, padding: '0 4px' }}>
+              版本不會被覆蓋 — 「上線」較舊版本即可回滾。
             </div>
           )}
         </div>

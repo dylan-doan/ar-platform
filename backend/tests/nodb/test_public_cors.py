@@ -83,6 +83,9 @@ def test_preflight_answered_for_public_path(client: TestClient) -> None:
     assert res.status_code == 200
     assert res.headers["access-control-allow-origin"] == "*"
     assert "access-control-allow-credentials" not in res.headers
+    # Static customer sites send their public Site Key cross-origin; nothing
+    # else (no X-Export-Key, no Authorization) is preflight-approved here.
+    assert res.headers["access-control-allow-headers"] == "X-Site-Key"
 
 
 @pytest.mark.parametrize("path", ["/api/headless/site/bnk", "/api/admin/events"])

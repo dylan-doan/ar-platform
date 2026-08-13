@@ -92,7 +92,7 @@ def _walk_blocks(items, where: str) -> None:
         if props is not None and not isinstance(props, dict):
             raise _bad(f"設計格式不符：{where} 的 {btype} props 必須是物件。")
         if btype == "HtmlBlock" and props:
-            from app.services.site_html import sanitize_html
+            from app.services.html_sanitizer import sanitize_html
 
             props["html"] = sanitize_html(str(props.get("html") or ""))
         for value in (props or {}).values():

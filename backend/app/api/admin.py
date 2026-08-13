@@ -3,7 +3,6 @@ user data, real-time statistics, report export. RBAC: tenant_admin only."""
 
 import csv
 import io
-import os
 import re
 import secrets
 import uuid
@@ -20,7 +19,18 @@ from app.core.config import get_settings
 from app.api.headless import hash_export_key
 from app.core.crypto import decrypt_secret, encrypt_secret
 from app.core.errors import ApiError
-from app.models import Event, ExportKey, MediaAsset, Member, RewardClaim, Stamp, Task, Tenant
+from app.models import (
+    Event,
+    ExportKey,
+    MediaAsset,
+    Member,
+    RewardClaim,
+    SiteFile,
+    SiteVersion,
+    Stamp,
+    Task,
+    Tenant,
+)
 from app.schemas import (
     BrandingOut,
     BrandingUpdate,
@@ -43,7 +53,16 @@ from app.services.site_design import (
     check_media_ownership,
     validate_design,
 )
-from app.services.site_html import design_to_site_files, site_files_to_design
+from app.services.site_static import (
+    MAX_SITE_ZIP,
+    SiteContext,
+    build_manifest,
+    create_site_version,
+    load_design_media,
+    render_site,
+    validate_site_upload,
+    version_out,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["tenant-admin"])
 
@@ -434,26 +453,50 @@ async def discard_design_draft(
     await ctx.session.commit()
 
 
-# --------------------------------------------- design round-trip in HTML
-# The END-USER editing surface: download a zip of .html files, edit them in
-# any editor (text, sections, own free-form markup), upload the files back.
-# Uploads convert to the SAME design JSON and land in the same
-# draft → preview → publish pipeline as the JSON path.
+# --------------------------------------------- static website versions
+# The static-website model (docs/html_website_builder_deployment_platform.md):
+# the platform GENERATES a plain static site (HTML/CSS/JS/assets) from the
+# design, the user downloads it, edits it with any tool, uploads it back —
+# and the upload is stored VERBATIM as a new immutable version (never parsed
+# back into builder blocks, doc §26). Publish/rollback repoint
+# events.site_version_id; production serves /sites/{tenant}/{event}/.
 
-MAX_HTML_UPLOAD = 5 * 1024 * 1024
+
+def _request_origin(request: Request) -> str:
+    """Caller's browser origin (the admin UI proxies /api, /media and /sites),
+    used as the absolute API base baked into js/site-config.js so the site
+    works from file://, self-hosting, and custom domains alike."""
+    origin = request.headers.get("origin") or ""
+    if not origin and request.headers.get("referer"):
+        m = re.match(r"(https?://[^/]+)", request.headers["referer"])
+        origin = m.group(1) if m else ""
+    return origin or str(request.base_url).rstrip("/")
 
 
-@router.get("/events/{event_id}/design/html")
-async def export_design_html(
+async def _get_site_version(ctx: AuthContext, event: Event, version_id: uuid.UUID) -> SiteVersion:
+    version = (
+        await ctx.session.execute(
+            select(SiteVersion).where(
+                SiteVersion.id == version_id,
+                SiteVersion.event_id == event.id,
+                SiteVersion.tenant_id == ctx.identity.tenant_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if version is None:
+        raise ApiError(404, "site_version_not_found", "找不到此網站版本。")
+    return version
+
+
+@router.post("/events/{event_id}/site/generate")
+async def generate_site_version(
     event_id: uuid.UUID,
     request: Request,
     ctx: AuthContext = Depends(tenant_admin_context),
-) -> Response:
-    """The published design as an editable HTML file set (zip).
-
-    The files carry the platform-rendered frame too (hero, nav, footer, live
-    stats/task previews) so what the user opens LOOKS like their whole site —
-    stamped data-z-skip, display-only, ignored on upload."""
+) -> dict:
+    """Render the event's published design into a static website and store it
+    as the next version (source_type="generated"). Nothing goes live until the
+    version is published — preview first via the returned preview_path."""
     event = await _get_event(ctx, event_id)
     tenant = (
         await ctx.session.execute(
@@ -467,81 +510,201 @@ async def export_design_html(
             .order_by(Task.sort_order)
         )
     ).scalars().all()
-    # Media base so images render when the file is opened from disk; the
-    # designer calls this through the frontend proxy, so its origin serves
-    # /media too. Import strips the prefix back off.
-    origin = request.headers.get("origin") or ""
-    if not origin and request.headers.get("referer"):
-        m = re.match(r"(https?://[^/]+)", request.headers["referer"])
-        origin = m.group(1) if m else ""
-    files = design_to_site_files(
-        event.config or {},
+    _, site_key = await _tenant_site_key(ctx)
+
+    cfg = event.config or {}
+    media = await load_design_media(ctx.session, cfg, cfg.get("heroImage") or "")
+    site_ctx = SiteContext(
+        tenant_slug=tenant.slug,
+        event_slug=event.slug,
         event_name=event.name,
+        description=event.description or "",
+        hero_image=cfg.get("heroImage") or "",
+        tenant_name=tenant.name,
         brand_color=(tenant.brand_config or {}).get("theme_color"),
-        site={
-            "description": event.description or "",
-            "hero_image": (event.config or {}).get("heroImage") or "",
-            "tenant_name": tenant.name,
-            "reward_name": event.reward_name or "",
-            "reward_threshold": event.reward_threshold or 1,
-            "tasks": list(task_names),
-        },
-        media_base=origin or str(request.base_url).rstrip("/"),
+        reward_name=event.reward_name or "",
+        reward_threshold=event.reward_threshold or 1,
+        tasks=list(task_names),
+        api_base=_request_origin(request),
+        site_key=site_key,
+        liff_id=tenant.line_liff_id,
+        media=media,
+    )
+    files = render_site(cfg, site_ctx)
+    version = await create_site_version(
+        ctx.session,
+        tenant_id=ctx.identity.tenant_id,
+        event_id=event.id,
+        source_type="generated",
+        files=files,
+        created_by=str(ctx.identity.subject_id),
+    )
+    await _audit_admin(
+        ctx, "site.generated", "site_version", version.id,
+        {"version": version.version_number, "files": version.file_count},
+    )
+    await ctx.session.commit()
+    return {"status": "generated", **version_out(version, event.site_version_id)}
+
+
+@router.get("/events/{event_id}/site/versions")
+async def list_site_versions(
+    event_id: uuid.UUID, ctx: AuthContext = Depends(tenant_admin_context)
+) -> dict:
+    event = await _get_event(ctx, event_id)
+    versions = (
+        (
+            await ctx.session.execute(
+                select(SiteVersion)
+                .where(SiteVersion.event_id == event.id)
+                .order_by(SiteVersion.version_number.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "current_version_id": str(event.site_version_id) if event.site_version_id else None,
+        "site_path": f"/sites/{await _tenant_slug(ctx)}/{event.slug}/",
+        "versions": [version_out(v, event.site_version_id) for v in versions],
+    }
+
+
+@router.get("/events/{event_id}/site/versions/{version_id}/download")
+async def download_site_version(
+    event_id: uuid.UUID,
+    version_id: uuid.UUID,
+    ctx: AuthContext = Depends(tenant_admin_context),
+) -> Response:
+    """website.zip of one version — index.html, css/, js/, assets/ plus
+    .website/manifest.json (identifies the project on re-upload, doc §8)."""
+    event = await _get_event(ctx, event_id)
+    version = await _get_site_version(ctx, event, version_id)
+    tenant_slug = await _tenant_slug(ctx)
+    files = (
+        (
+            await ctx.session.execute(
+                select(SiteFile).where(SiteFile.version_id == version.id)
+            )
+        )
+        .scalars()
+        .all()
     )
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for name, text in files.items():
-            zf.writestr(name, text)
+        for f in files:
+            zf.writestr(f.path, f.data)
+        zf.writestr(
+            ".website/manifest.json",
+            build_manifest(
+                tenant_slug=tenant_slug,
+                event_id=event.id,
+                version_id=version.id,
+                version_number=version.version_number,
+            ),
+        )
     return Response(
         content=buf.getvalue(),
         media_type="application/zip",
         headers={
-            "content-disposition": f'attachment; filename="{tenant.slug}-{event.slug}-html.zip"'
+            "content-disposition": (
+                f'attachment; filename="{tenant_slug}-{event.slug}-website-v{version.version_number}.zip"'
+            )
         },
     )
 
 
-@router.put("/events/{event_id}/design/html")
-async def import_design_html(
+@router.post("/events/{event_id}/site/upload")
+async def upload_site_version(
     event_id: uuid.UUID,
     file: UploadFile,
     ctx: AuthContext = Depends(tenant_admin_context),
 ) -> dict:
-    """Upload edited HTML (the exported zip, or a single index.html).
+    """Upload an edited website zip → next version, stored VERBATIM.
 
-    Parsed back into design JSON: annotated blocks keep their identity (the
-    designer can still edit them), user-authored markup becomes sanitized
-    自訂 HTML blocks, style.css becomes the site's custom CSS. Lands as a
-    DRAFT with a preview link — nothing goes live until publish."""
+    Validation is the doc §11 checklist (traversal / zip bomb / static-only
+    extensions / index.html present); the manifest, when still present, must
+    belong to THIS event. The files themselves are never rewritten or parsed —
+    what is uploaded is exactly what production will serve after publish."""
     event = await _get_event(ctx, event_id)
     data = await file.read()
-    if len(data) > MAX_HTML_UPLOAD:
-        raise ApiError(422, "design_invalid", "上傳檔案過大（上限 5MB）。")
+    if len(data) > MAX_SITE_ZIP:
+        raise ApiError(422, "site_invalid", "ZIP 檔案過大（上限 20MB）。")
+    files, manifest = validate_site_upload(data)
+    if manifest is not None:
+        project_id = str(manifest.get("project_id") or "")
+        if project_id and project_id != str(event.id):
+            raise ApiError(
+                422, "site_wrong_project",
+                "這個網站壓縮檔屬於另一個活動（manifest 的 project_id 不符）。",
+            )
+    version = await create_site_version(
+        ctx.session,
+        tenant_id=ctx.identity.tenant_id,
+        event_id=event.id,
+        source_type="user_upload",
+        files=files,
+        created_by=str(ctx.identity.subject_id),
+    )
+    await _audit_admin(
+        ctx, "site.uploaded", "site_version", version.id,
+        {"version": version.version_number, "files": version.file_count},
+    )
+    await ctx.session.commit()
+    return {"status": "uploaded", **version_out(version, event.site_version_id)}
 
-    files: dict[str, str] = {}
-    if data[:2] == b"PK":  # zip
-        try:
-            with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                for info in zf.infolist():
-                    name = os.path.basename(info.filename)
-                    if info.is_dir() or not name or name.startswith("."):
-                        continue
-                    if not (name.endswith(".html") or name == "style.css"):
-                        continue
-                    if info.file_size > MAX_HTML_UPLOAD:
-                        raise ApiError(422, "design_invalid", "上傳檔案過大（上限 5MB）。")
-                    files[name] = zf.read(info).decode("utf-8", errors="replace")
-        except zipfile.BadZipFile:
-            raise ApiError(422, "design_invalid", "ZIP 檔案無法讀取。")
-    else:
-        files["index.html"] = data.decode("utf-8", errors="replace")
 
-    design = site_files_to_design(files, event.config or {})
-    result = await _save_design_draft(ctx, event, design)
-    result["pages"] = ["index.html"] + [
-        n for n in sorted(files) if n.endswith(".html") and n != "index.html"
-    ]
-    return result
+@router.post("/events/{event_id}/site/versions/{version_id}/publish")
+async def publish_site_version(
+    event_id: uuid.UUID,
+    version_id: uuid.UUID,
+    ctx: AuthContext = Depends(tenant_admin_context),
+) -> dict:
+    """Point production at this version (atomic). Publishing an older version
+    IS the rollback (doc §13) — versions are immutable, nothing is rebuilt."""
+    event = await _get_event(ctx, event_id)
+    version = await _get_site_version(ctx, event, version_id)
+    event.site_version_id = version.id
+    await _audit_admin(
+        ctx, "site.published", "site_version", version.id,
+        {"version": version.version_number, "source_type": version.source_type},
+    )
+    await ctx.session.commit()
+    return {
+        "status": "published",
+        "site_path": f"/sites/{await _tenant_slug(ctx)}/{event.slug}/",
+        **version_out(version, event.site_version_id),
+    }
+
+
+@router.post("/events/{event_id}/site/unpublish")
+async def unpublish_site(
+    event_id: uuid.UUID, ctx: AuthContext = Depends(tenant_admin_context)
+) -> dict:
+    """Take the static site offline (versions are kept; /e/... SSR remains)."""
+    event = await _get_event(ctx, event_id)
+    event.site_version_id = None
+    await _audit_admin(ctx, "site.unpublished", "event", event.id, {"slug": event.slug})
+    await ctx.session.commit()
+    return {"status": "unpublished"}
+
+
+@router.delete("/events/{event_id}/site/versions/{version_id}", status_code=204)
+async def delete_site_version(
+    event_id: uuid.UUID,
+    version_id: uuid.UUID,
+    ctx: AuthContext = Depends(tenant_admin_context),
+) -> None:
+    event = await _get_event(ctx, event_id)
+    version = await _get_site_version(ctx, event, version_id)
+    if event.site_version_id == version.id:
+        raise ApiError(409, "site_version_in_use", "此版本正在線上使用中，請先發佈其他版本。")
+    await ctx.session.delete(version)
+    await _audit_admin(
+        ctx, "site.version_deleted", "site_version", version_id,
+        {"version": version.version_number},
+    )
+    await ctx.session.commit()
 
 
 # ------------------------------------------------------------------ tasks
@@ -854,20 +1017,12 @@ async def event_stats(
 
 # ------------------------------------------------------------------ headless template export (spec §3)
 
-@router.post("/tenant-api-key", response_model=ExportKeyCreated)
-async def get_or_create_tenant_api_key(
-    ctx: AuthContext = Depends(tenant_admin_context),
-) -> ExportKeyCreated:
-    """This tenant's ONE API key, for baking into a project export.
-
-    Returns the existing active key (decrypted) so repeated exports keep working
-    with the same key the customer already deployed; mints one only if the tenant
-    has none, or if the stored copy predates encryption and cannot be recovered
-    (in which case the previous key is revoked, exactly like a console rotation).
-
-    Scoped to the caller's own tenant — a tenant admin can only ever reach their
-    own key.
-    """
+async def _tenant_site_key(ctx: AuthContext) -> tuple[ExportKey, str]:
+    """This tenant's ONE tenant-wide key (the Site Key baked into exports and
+    generated static sites). Returns the existing active key decrypted so every
+    export ships the same key the customer already deployed; mints one only if
+    none exists or the stored copy predates encryption (previous keys are then
+    revoked, exactly like a console rotation). Flushes, does not commit."""
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     existing = (
         (
@@ -887,8 +1042,7 @@ async def get_or_create_tenant_api_key(
     for key in existing:
         recovered = decrypt_secret(key.key_cipher or "")
         if recovered is not None:
-            out = ExportKeyOut.model_validate(key)
-            return ExportKeyCreated(**out.model_dump(), key=recovered)
+            return key, recovered
 
     # None recoverable — rotate so the export ships a key that actually works.
     for key in existing:
@@ -906,6 +1060,19 @@ async def get_or_create_tenant_api_key(
     await _audit_admin(
         ctx, "tenant_api_key.created", "export_key", key.id, {"prefix": key.key_prefix}
     )
+    return key, plaintext
+
+
+@router.post("/tenant-api-key", response_model=ExportKeyCreated)
+async def get_or_create_tenant_api_key(
+    ctx: AuthContext = Depends(tenant_admin_context),
+) -> ExportKeyCreated:
+    """This tenant's ONE API key, for baking into a project export.
+
+    Scoped to the caller's own tenant — a tenant admin can only ever reach their
+    own key.
+    """
+    key, plaintext = await _tenant_site_key(ctx)
     await ctx.session.commit()
     out = ExportKeyOut.model_validate(key)
     return ExportKeyCreated(**out.model_dump(), key=plaintext)

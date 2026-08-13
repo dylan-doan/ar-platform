@@ -13,6 +13,11 @@ const nextConfig = {
     return [
       { source: '/api/:path*', destination: `${backend}/api/:path*` },
       { source: '/media/:path*', destination: `${backend}/media/:path*` },
+      // Customer static websites (published versions + previews). Uploaded
+      // sites contain arbitrary user JS — safe on this origin only because the
+      // backend serves every HTML file with a sandbox CSP (opaque origin, no
+      // access to this origin's storage/session).
+      { source: '/sites/:path*', destination: `${backend}/sites/:path*` },
       { source: '/healthz', destination: `${backend}/healthz` },
     ];
   },
