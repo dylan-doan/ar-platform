@@ -10,18 +10,21 @@ files back. This module is the two-way bridge:
                                        validate → draft → preview → publish)
 
 Contract encoded here:
-- Every block is one annotated element (`data-zb="TextCard"`). Its machine
-  props ride in `data-zprops`; its human-editable text lives as REAL text in
-  semantic child tags, so editing the HTML edits the design.
-- Live blocks (StatsBand/TaskStops/chrome) export as labeled placeholders —
-  their content is platform-rendered, so the placeholder body is ignored on
-  import and the block survives verbatim.
+- Every design block is one annotated element (`data-zb="TextCard"`). Its
+  machine props ride in `data-zprops`; its human-editable text lives as REAL
+  text in semantic child tags, so editing the HTML edits the design.
+- The file looks like the WHOLE site: hero, nav (local links between the
+  files), footer, and live-data previews (stats, task stops) are rendered in
+  too — but marked `data-z-skip`, so they are display-only and ignored on
+  import (that content belongs to 活動設定 / live data, not the design).
 - Markup WITHOUT `data-zb` is the user's own: it becomes an HtmlBlock, run
   through a strict sanitizer (nh3/ammonia — scripts, event handlers and
   dangerous URLs stripped). This is what makes free-form HTML safe to accept.
-- The exported <style> block is a simplified viewing skin, NOT the real
-  renderer output; the pixel-true look is the ?draft= preview after upload.
-  style.css (site custom CSS) does round-trip.
+- Media URLs are absolutized on export (so images render from file://) and
+  relativized back to /media/… on import.
+- The exported <style> is a simplified viewing skin, NOT the real renderer
+  output; the pixel-true look is the ?draft= preview after upload. style.css
+  (site custom CSS) does round-trip.
 """
 
 import html as html_mod
@@ -34,6 +37,7 @@ from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 from app.core.errors import ApiError
 
 PAGE_FILE_RE = re.compile(r"^([a-z0-9][a-z0-9-]{0,63})\.html$")
+_MEDIA_ABS_RE = re.compile(r"https?://[^/\s\"']+(/media/)")
 
 # ---------------------------------------------------------------- sanitizer
 
@@ -70,6 +74,10 @@ def _esc(text) -> str:
     return html_mod.escape(str(text or ""), quote=False)
 
 
+def _attr(text) -> str:
+    return html_mod.escape(str(text or ""), quote=True)
+
+
 def _zprops(props: dict, *skip: str) -> str:
     """Machine props as an HTML attribute. Keeps id (zones/publish diffs stay
     stable) and everything not extracted into editable child elements."""
@@ -77,11 +85,45 @@ def _zprops(props: dict, *skip: str) -> str:
     return html_mod.escape(json.dumps(keep, ensure_ascii=False, separators=(",", ":")), quote=True)
 
 
-def _serialize_children(items, depth: int) -> str:
-    return "\n".join(_serialize_block(b, depth) for b in (items or []))
+class _Ctx:
+    """Export context: live-data previews + media absolutizing."""
+
+    def __init__(self, site: dict | None, media_base: str):
+        site = site or {}
+        self.media_base = (media_base or "").rstrip("/")
+        self.description = site.get("description") or ""
+        self.hero_image = site.get("hero_image") or ""
+        self.tenant_name = site.get("tenant_name") or ""
+        self.reward_name = site.get("reward_name") or ""
+        self.reward_threshold = site.get("reward_threshold") or 1
+        self.tasks = site.get("tasks") or []
+
+    def abs_url(self, url: str) -> str:
+        if self.media_base and isinstance(url, str) and url.startswith("/media/"):
+            return f"{self.media_base}{url}"
+        return url or ""
 
 
-def _serialize_block(b: dict, depth: int = 1) -> str:
+def _serialize_children(items, depth: int, ctx: _Ctx) -> str:
+    return "\n".join(_serialize_block(b, depth, ctx) for b in (items or []))
+
+
+def _stats_preview(ctx: _Ctx, pad: str) -> str:
+    return (
+        f'{pad}  <div class="z-stats" data-z-skip>\n'
+        f'{pad}    <div><b>{len(ctx.tasks)}</b><span>任務停靠點</span></div>\n'
+        f'{pad}    <div><b>{ctx.reward_threshold}</b><span>集章門檻</span></div>\n'
+        f'{pad}    <div><b>{_esc(ctx.reward_name) or "—"}</b><span>獎勵</span></div>\n'
+        f"{pad}  </div>"
+    )
+
+
+def _tasks_preview(ctx: _Ctx, pad: str) -> str:
+    lis = "\n".join(f"{pad}      <li>{_esc(t)}</li>" for t in ctx.tasks) or f"{pad}      <li>（尚無任務）</li>"
+    return f'{pad}  <ul class="z-tasks" data-z-skip>\n{lis}\n{pad}    </ul>'
+
+
+def _serialize_block(b: dict, depth: int, ctx: _Ctx) -> str:
     t = b.get("type")
     p = b.get("props") or {}
     pad = "  " * depth
@@ -129,9 +171,9 @@ def _serialize_block(b: dict, depth: int = 1) -> str:
             f"{pad}</section>"
         )
     if t == "Banner":
-        img = f'{pad}  <img src="{html_mod.escape(p.get("image") or "", quote=True)}" alt="">\n' if p.get("image") else ""
+        img = f'{pad}  <img src="{_attr(ctx.abs_url(p.get("image")))}" alt="">\n' if p.get("image") else ""
         cta = (
-            f'{pad}  <a class="cta" href="{html_mod.escape(p.get("ctaHref") or "", quote=True)}">{_esc(p.get("ctaLabel"))}</a>\n'
+            f'{pad}  <a class="cta" href="{_attr(p.get("ctaHref"))}">{_esc(p.get("ctaLabel"))}</a>\n'
             if p.get("ctaLabel") else ""
         )
         return (
@@ -143,20 +185,19 @@ def _serialize_block(b: dict, depth: int = 1) -> str:
             f"{pad}</section>"
         )
     if t == "Image":
-        alt = html_mod.escape(p.get("alt") or "", quote=True)
         return (
             f'{pad}<figure data-zb="Image" data-zprops="{_zprops(p, "url", "alt")}">\n'
-            f'{pad}  <img src="{html_mod.escape(p.get("url") or "", quote=True)}" alt="{alt}">\n'
+            f'{pad}  <img src="{_attr(ctx.abs_url(p.get("url")))}" alt="{_attr(p.get("alt"))}">\n'
             f"{pad}</figure>"
         )
     if t == "Button":
         return (
             f'{pad}<p data-zb="Button" data-zprops="{_zprops(p, "label", "href")}">'
-            f'<a class="btn" href="{html_mod.escape(p.get("href") or "", quote=True)}">{_esc(p.get("label"))}</a></p>'
+            f'<a class="btn" href="{_attr(p.get("href"))}">{_esc(p.get("label"))}</a></p>'
         )
     if t == "Columns":
-        left = _serialize_children(p.get("left"), depth + 2)
-        right = _serialize_children(p.get("right"), depth + 2)
+        left = _serialize_children(p.get("left"), depth + 2, ctx)
+        right = _serialize_children(p.get("right"), depth + 2, ctx)
         return (
             f'{pad}<div data-zb="Columns" data-zprops="{_zprops(p, "left", "right")}">\n'
             f'{pad}  <div data-zcol="left">\n{left}\n{pad}  </div>\n'
@@ -172,8 +213,21 @@ def _serialize_block(b: dict, depth: int = 1) -> str:
             f'{pad}<div data-zb="HtmlBlock" data-zprops="{_zprops(p, "html")}">\n'
             f"{p.get('html') or ''}\n{pad}</div>"
         )
-    # Live/chrome blocks (StatsBand, TaskStops, SiteHeader, SiteFooter …):
-    # platform-rendered; the placeholder body is ignored on import.
+    if t == "StatsBand":
+        return (
+            f'{pad}<div data-zb="StatsBand" data-zprops="{_zprops(p)}" class="z-live">\n'
+            f'{pad}  <p class="z-live-tag">⚙ 活動數據 — 平台自動同步（此處僅為預覽，上傳時以下內容會被忽略）</p>\n'
+            f"{_stats_preview(ctx, pad)}\n"
+            f"{pad}</div>"
+        )
+    if t == "TaskStops":
+        return (
+            f'{pad}<div data-zb="TaskStops" data-zprops="{_zprops(p)}" class="z-live">\n'
+            f'{pad}  <p class="z-live-tag">⚙ {_esc(p.get("title") or "任務停靠點")} — 平台自動同步（預覽，上傳時忽略）</p>\n'
+            f"{_tasks_preview(ctx, pad)}\n"
+            f"{pad}</div>"
+        )
+    # Chrome / any other platform block: placeholder body, props verbatim.
     return (
         f'{pad}<div data-zb="{_esc(t)}" data-zprops="{_zprops(p)}" class="z-live">\n'
         f"{pad}  <p>⚙ {_esc(t)} — 此區塊由平台自動渲染（請勿在此編輯，內容上傳時會被忽略）</p>\n"
@@ -186,15 +240,26 @@ _VIEW_CSS = """
 * { box-sizing: border-box; }
 body { margin: 0; font-family: system-ui, -apple-system, 'PingFang TC', 'Noto Sans TC', sans-serif;
        color: #1c2530; background: #f6f7f9; line-height: 1.65; }
-main[data-zoustec-content] { max-width: 760px; margin: 0 auto; padding: 28px 18px 80px; }
+main[data-zoustec-content] { max-width: 760px; margin: 0 auto; padding: 24px 18px 60px; }
 h1,h2,h3 { line-height: 1.3; }
 img { max-width: 100%%; border-radius: 10px; }
 section, aside, figure, [data-zb] { margin: 18px 0; }
+.z-nav { display: flex; align-items: center; gap: 14px; padding: 12px 20px; background: var(--brand);
+  color: #fff; position: sticky; top: 0; }
+.z-nav b { margin-right: auto; }
+.z-nav a { color: #fff; text-decoration: none; font-size: 14px; opacity: .92; }
+.z-nav .z-join { background: #fff; color: var(--brand); border-radius: 999px; padding: 6px 16px; font-weight: 700; }
+.z-hero { background: #253244 center/cover no-repeat; color: #fff; padding: 72px 24px; text-align: left; margin: 0; }
+.z-hero .z-hero-inner { max-width: 760px; margin: 0 auto; }
+.z-hero h1 { margin: 0 0 10px; font-size: 34px; }
+.z-hero p { margin: 0 0 18px; opacity: .92; max-width: 46em; }
+.z-hero .cta { margin-right: 10px; }
+.z-note { max-width: 760px; margin: 10px auto 0; padding: 0 18px; font-size: 12px; color: #8a95a1; }
 [data-zb="TextCard"], [data-zb="InfoList"], [data-zb="Places"] {
   background: #fff; border: 1px solid #e3e7ec; border-radius: 12px; padding: 16px 18px; }
 [data-zb="Notice"] { background: #fff8ec; border: 1px solid #f0dfc0; border-radius: 12px; padding: 14px 18px; }
-[data-zb="Banner"] { background: #202b38; color: #fff; border-radius: 14px; padding: 40px 24px; text-align: center; }
-[data-zb="Banner"] .cta, .btn { display: inline-block; background: var(--brand); color: #fff;
+[data-zb="Banner"] { background: #202b38; color: #fff; border-radius: 14px; padding: 40px 24px; text-align: center; overflow: hidden; }
+[data-zb="Banner"] .cta, .btn, .z-hero .cta { display: inline-block; background: var(--brand); color: #fff;
   padding: 10px 22px; border-radius: 999px; text-decoration: none; font-weight: 600; }
 [data-zb="Columns"] { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 [data-zb="Columns"] > div { min-width: 0; }
@@ -203,10 +268,18 @@ dt { color: #66727f; } dd { margin: 0; text-align: right; }
 [data-zb="Places"] li, [data-zb="Notice"] li { margin: 6px 0; }
 [data-zb="Places"] strong { display: block; }
 hr { border: 0; border-top: 1px solid #dde2e8; }
-.z-live { background: repeating-linear-gradient(45deg,#eef1f5,#eef1f5 12px,#e6eaef 12px,#e6eaef 24px);
-  border: 1px dashed #b7c0cb; border-radius: 12px; padding: 8px 16px; color: #66727f; font-size: 14px; }
-[data-zb]:hover { outline: 1px dashed #d0a; outline-offset: 3px; position: relative; }
-@media (max-width: 620px) { [data-zb="Columns"] { grid-template-columns: 1fr; } }
+.z-live { background: #f2f5f8; border: 1px dashed #b7c0cb; border-radius: 12px; padding: 10px 16px 14px; }
+.z-live-tag { color: #66727f; font-size: 13px; margin: 2px 0 10px; }
+.z-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.z-stats > div { background: #fff; border: 1px solid #e3e7ec; border-radius: 10px; padding: 10px 14px; }
+.z-stats b { display: block; font-size: 20px; }
+.z-stats span { font-size: 12px; color: #66727f; }
+.z-tasks { list-style: none; margin: 0; padding: 0; }
+.z-tasks li { background: #fff; border: 1px solid #e3e7ec; border-radius: 10px; padding: 10px 14px; margin: 8px 0; }
+.z-footer { background: #1d2733; color: #c7d0da; padding: 26px 20px; margin-top: 40px; font-size: 14px; }
+.z-footer .z-footer-inner { max-width: 760px; margin: 0 auto; }
+[data-zb]:hover { outline: 1px dashed #d0a; outline-offset: 3px; }
+@media (max-width: 620px) { [data-zb="Columns"], .z-stats { grid-template-columns: 1fr; } }
 """
 
 _GUIDE = """<!--
@@ -216,24 +289,64 @@ _GUIDE = """<!--
   · 可整段刪除、上下搬移各個 <section>
   · 可自由撰寫自己的 HTML 段落（不需要任何 data- 屬性；
     script 與事件屬性會在上傳時被系統移除）
-  · 標了「由平台自動渲染」的區塊請勿改動內文
+  · 淺灰虛線框（頁首/主視覺/數據/任務/頁尾）由平台自動渲染，
+    僅供預覽 — 修改那些內容請至平台的 活動設定
   · data-zb / data-zprops 屬性是系統識別用 — 保留它，
     區塊回到平台後才能繼續在設計器中編輯
   · style.css = 全站自訂 CSS，會一併上傳
-  · 本檔的預設樣式僅供編輯時預覽；上傳後請用平台給的
-    預覽連結確認正式外觀，再按發佈
+  · 上傳後請用平台給的預覽連結確認正式外觀，再按發佈
   ══════════════════════════════════════════════════════════════
 -->"""
 
 
-def _page_html(title: str, content_html: str, *, theme: str, nav: bool, brand: str) -> str:
+def _nav_html(event_name: str, nav_items: list[tuple[str, str]], current: str) -> str:
+    links = "\n".join(
+        f'  <a href="{_attr(fname)}"{" style=\"text-decoration:underline\"" if fname == current else ""}>{_esc(title)}</a>'
+        for fname, title in nav_items
+    )
+    return (
+        f'<nav class="z-nav" data-z-skip>\n'
+        f"  <b>{_esc(event_name)}</b>\n{links}\n"
+        f'  <span class="z-join">開始旅程</span>\n'
+        f"</nav>"
+    )
+
+
+def _hero_html(event_name: str, ctx: _Ctx) -> str:
+    bg = f' style="background-image:linear-gradient(rgba(15,23,32,.55),rgba(15,23,32,.7)),url(\'{_attr(ctx.abs_url(ctx.hero_image))}\')"' if ctx.hero_image else ""
+    return (
+        f'<header class="z-hero" data-z-skip{bg}>\n'
+        f'  <div class="z-hero-inner">\n'
+        f"    <h1>{_esc(event_name)}</h1>\n"
+        f"    <p>{_esc(ctx.description)}</p>\n"
+        f'    <span class="cta">開始旅程</span><span class="cta" style="background:transparent;border:1px solid #fff">查看地圖</span>\n'
+        f"  </div>\n"
+        f"</header>\n"
+        f'<p class="z-note" data-z-skip>↑ 主視覺（標題／介紹／封面圖）來自平台的「活動設定」— 在此修改不會生效</p>'
+    )
+
+
+def _footer_html(ctx: _Ctx) -> str:
+    return (
+        f'<footer class="z-footer" data-z-skip>\n'
+        f'  <div class="z-footer-inner">{_esc(ctx.tenant_name)} · Powered by Zoustec（頁尾由平台渲染 — 預覽）</div>\n'
+        f"</footer>"
+    )
+
+
+def _page_html(
+    title: str, content_html: str, *, theme: str, nav: bool, brand: str,
+    event_name: str, nav_items: list[tuple[str, str]], current: str,
+    ctx: _Ctx, with_hero: bool,
+) -> str:
+    hero = f"\n{_hero_html(event_name, ctx)}" if with_hero else ""
     return f"""<!doctype html>
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="zoustec-design" content="1">
-<meta name="zoustec-theme" content="{html_mod.escape(theme or '', quote=True)}">
+<meta name="zoustec-theme" content="{_attr(theme)}">
 <meta name="zoustec-nav" content="{'show' if nav else 'hide'}">
 <title>{_esc(title)}</title>
 <style>{_VIEW_CSS % {'brand': brand or '#0e7490'}}</style>
@@ -241,35 +354,57 @@ def _page_html(title: str, content_html: str, *, theme: str, nav: bool, brand: s
 </head>
 <body>
 {_GUIDE}
+{_nav_html(event_name, nav_items, current)}{hero}
 <main data-zoustec-content>
 {content_html}
 </main>
+{_footer_html(ctx)}
 </body>
 </html>
 """
 
 
-def design_to_site_files(cfg: dict, *, event_name: str, brand_color: str | None) -> dict[str, str]:
-    """Published design → the editable file set handed to the user."""
+def design_to_site_files(
+    cfg: dict,
+    *,
+    event_name: str,
+    brand_color: str | None,
+    site: dict | None = None,
+    media_base: str = "",
+) -> dict[str, str]:
+    """Published design → the editable file set handed to the user.
+
+    `site` carries the platform-rendered context (description, hero image,
+    tenant name, reward, task names) so the exported file LOOKS like the whole
+    site; those parts are stamped data-z-skip and never round-trip."""
     cfg = cfg or {}
+    ctx = _Ctx(site, media_base)
     puck = cfg.get("puck") or {}
     root_props = (puck.get("root") or {}).get("props") or {}
     theme = root_props.get("theme") or "default"
     brand = brand_color or "#0e7490"
 
+    pages = [p for p in (cfg.get("pages") or []) if p.get("slug") and p.get("slug") != "index"]
+    nav_items = [("index.html", "首頁")] + [
+        (f"{p['slug']}.html", p.get("title") or p["slug"]) for p in pages if p.get("nav") is not False
+    ]
+
     files: dict[str, str] = {}
     files["index.html"] = _page_html(
-        event_name, _serialize_children(puck.get("content"), 1),
-        theme=theme, nav=True, brand=brand,
+        event_name, _serialize_children(puck.get("content"), 1, ctx),
+        theme=theme, nav=True, brand=brand, event_name=event_name,
+        nav_items=nav_items, current="index.html", ctx=ctx, with_hero=True,
     )
-    for page in cfg.get("pages") or []:
+    for page in pages:
         slug = page.get("slug")
-        if not slug or not PAGE_FILE_RE.match(f"{slug}.html") or slug == "index":
+        if not PAGE_FILE_RE.match(f"{slug}.html"):
             continue
         files[f"{slug}.html"] = _page_html(
             page.get("title") or slug,
-            _serialize_children((page.get("data") or {}).get("content"), 1),
+            _serialize_children((page.get("data") or {}).get("content"), 1, ctx),
             theme=theme, nav=page.get("nav") is not False, brand=brand,
+            event_name=event_name, nav_items=nav_items,
+            current=f"{slug}.html", ctx=ctx, with_hero=False,
         )
     files["style.css"] = root_props.get("customCss") or "/* 全站自訂 CSS — 會隨上傳套用到網站 */\n"
     return files
@@ -362,7 +497,9 @@ def _parse_block(el: Tag) -> dict:
 
 def _parse_container(container: Tag) -> list[dict]:
     """Container children → block list. Annotated tags become blocks; runs of
-    user-authored markup collapse into sanitized HtmlBlocks, preserving order."""
+    user-authored markup collapse into sanitized HtmlBlocks, preserving order.
+    Elements stamped data-z-skip are display-only exports (hero, nav, live
+    previews) — never imported."""
     blocks: list[dict] = []
     buffer: list[str] = []
 
@@ -382,6 +519,8 @@ def _parse_container(container: Tag) -> list[dict]:
                 buffer.append(str(child))
             continue
         if isinstance(child, Tag):
+            if child.has_attr("data-z-skip"):
+                continue
             if child.get("data-zb"):
                 flush()
                 blocks.append(_parse_block(child))
@@ -394,6 +533,10 @@ def _parse_container(container: Tag) -> list[dict]:
 def _parse_page(html_text: str) -> dict:
     soup = BeautifulSoup(html_text, "html.parser")
     container = soup.find("main", attrs={"data-zoustec-content": True}) or soup.body or soup
+    # A pasted/duplicated file may carry the display-only frame INSIDE main —
+    # drop every data-z-skip element wherever it sits before parsing.
+    for skipped in container.find_all(attrs={"data-z-skip": True}):
+        skipped.decompose()
     title_el = soup.find("title")
     nav_meta = soup.find("meta", attrs={"name": "zoustec-nav"})
     theme_meta = soup.find("meta", attrs={"name": "zoustec-theme"})
@@ -403,6 +546,18 @@ def _parse_page(html_text: str) -> dict:
         "theme": (theme_meta.get("content") or "").strip() if theme_meta else "",
         "content": _parse_container(container),
     }
+
+
+def _relativize_media(node):
+    """Absolute media URLs (added on export so file:// viewing works) →
+    back to /media/… so the stored design stays host-independent."""
+    if isinstance(node, str):
+        return _MEDIA_ABS_RE.sub(r"\1", node)
+    if isinstance(node, list):
+        return [_relativize_media(v) for v in node]
+    if isinstance(node, dict):
+        return {k: _relativize_media(v) for k, v in node.items()}
+    return node
 
 
 def site_files_to_design(files: dict[str, str], current_cfg: dict) -> dict:
@@ -431,7 +586,7 @@ def site_files_to_design(files: dict[str, str], current_cfg: dict) -> dict:
     pages = []
     for name, text in sorted(files.items()):
         m = PAGE_FILE_RE.match(name)
-        if not m or name == "index.html" or name == "style.css":
+        if not m or name == "index.html" or not name.endswith(".html"):
             continue
         slug = m.group(1)
         parsed = _parse_page(text)
@@ -449,13 +604,15 @@ def site_files_to_design(files: dict[str, str], current_cfg: dict) -> dict:
             }
         )
 
-    return {
-        "puck": {
-            "root": {**(cur_puck.get("root") or {}), "props": cur_root_props},
-            "content": home["content"],
-            "zones": cur_puck.get("zones") or {},
-        },
-        "pages": pages,
-        "header": cfg.get("header"),
-        "footer": cfg.get("footer"),
-    }
+    return _relativize_media(
+        {
+            "puck": {
+                "root": {**(cur_puck.get("root") or {}), "props": cur_root_props},
+                "content": home["content"],
+                "zones": cur_puck.get("zones") or {},
+            },
+            "pages": pages,
+            "header": cfg.get("header"),
+            "footer": cfg.get("footer"),
+        }
+    )

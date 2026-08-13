@@ -152,6 +152,33 @@ def test_new_page_file_creates_page():
     assert page["data"]["content"][0]["type"] == "HtmlBlock"
 
 
+def test_site_frame_is_display_only_and_media_roundtrips():
+    cfg = _cfg()
+    files = design_to_site_files(
+        cfg, event_name="Sự kiện", brand_color="#dc2626",
+        site={"description": "mô tả", "hero_image": "/media/db/abc", "tenant_name": "BnK",
+              "reward_name": "Quà", "reward_threshold": 2, "tasks": ["Trạm 1", "Trạm 2"]},
+        media_base="https://front.example.com",
+    )
+    index = files["index.html"]
+    # The file LOOKS like the whole site: hero, nav (local links), footer,
+    # live previews with real numbers — all stamped data-z-skip.
+    assert "z-hero" in index and "mô tả" in index
+    assert 'href="guide.html"' in index
+    assert "z-footer" in index and "BnK" in index
+    assert "Quà" in index  # live stats preview inside StatsBand placeholder
+    # Media absolutized for file:// viewing…
+    assert "https://front.example.com/media/x.png" in index
+    assert "https://front.example.com/media/db/abc" in index
+
+    # …and the whole frame vanishes on import; media returns to relative.
+    design = site_files_to_design(files, cfg)
+    assert _types(design) == _types({"puck": cfg["puck"]})  # no frame leaked in
+    banner = design["puck"]["content"][0]["props"]
+    assert banner["image"] == "/media/x.png"
+    assert all(b["type"] != "HtmlBlock" for b in design["puck"]["content"])
+
+
 def test_sanitize_html_strips_dangerous_content():
     assert sanitize_html('<a href="javascript:alert(1)">x</a>').count("javascript") == 0
     assert "<iframe" not in sanitize_html('<iframe src="https://evil"></iframe>')

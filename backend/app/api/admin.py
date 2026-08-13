@@ -4,6 +4,7 @@ user data, real-time statistics, report export. RBAC: tenant_admin only."""
 import csv
 import io
 import os
+import re
 import secrets
 import uuid
 import zipfile
@@ -444,19 +445,48 @@ MAX_HTML_UPLOAD = 5 * 1024 * 1024
 
 @router.get("/events/{event_id}/design/html")
 async def export_design_html(
-    event_id: uuid.UUID, ctx: AuthContext = Depends(tenant_admin_context)
+    event_id: uuid.UUID,
+    request: Request,
+    ctx: AuthContext = Depends(tenant_admin_context),
 ) -> Response:
-    """The published design as an editable HTML file set (zip)."""
+    """The published design as an editable HTML file set (zip).
+
+    The files carry the platform-rendered frame too (hero, nav, footer, live
+    stats/task previews) so what the user opens LOOKS like their whole site —
+    stamped data-z-skip, display-only, ignored on upload."""
     event = await _get_event(ctx, event_id)
     tenant = (
         await ctx.session.execute(
             select(Tenant).where(Tenant.id == ctx.identity.tenant_id)
         )
     ).scalar_one()
+    task_names = (
+        await ctx.session.execute(
+            select(Task.name)
+            .where(Task.event_id == event.id, Task.is_active)
+            .order_by(Task.sort_order)
+        )
+    ).scalars().all()
+    # Media base so images render when the file is opened from disk; the
+    # designer calls this through the frontend proxy, so its origin serves
+    # /media too. Import strips the prefix back off.
+    origin = request.headers.get("origin") or ""
+    if not origin and request.headers.get("referer"):
+        m = re.match(r"(https?://[^/]+)", request.headers["referer"])
+        origin = m.group(1) if m else ""
     files = design_to_site_files(
         event.config or {},
         event_name=event.name,
         brand_color=(tenant.brand_config or {}).get("theme_color"),
+        site={
+            "description": event.description or "",
+            "hero_image": (event.config or {}).get("heroImage") or "",
+            "tenant_name": tenant.name,
+            "reward_name": event.reward_name or "",
+            "reward_threshold": event.reward_threshold or 1,
+            "tasks": list(task_names),
+        },
+        media_base=origin or str(request.base_url).rstrip("/"),
     )
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
