@@ -37,7 +37,7 @@ def test_block_whitelist_matches_frontend_registry():
     # if this fails, one side added/renamed a block without the other.
     assert ALLOWED_BLOCKS == {
         "StatsBand", "TaskStops",
-        "Heading", "Paragraph", "TextCard", "Notice", "InfoList", "Places",
+        "Heading", "Paragraph", "TextCard", "Notice", "InfoList", "Places", "HtmlBlock",
         "Banner", "Image", "Button",
         "Columns", "Spacer", "Divider",
         "SiteHeader", "SiteFooter",

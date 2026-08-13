@@ -6,6 +6,7 @@ import io
 import os
 import secrets
 import uuid
+import zipfile
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Body, Depends, Request, UploadFile
@@ -41,6 +42,7 @@ from app.services.site_design import (
     check_media_ownership,
     validate_design,
 )
+from app.services.site_html import design_to_site_files, site_files_to_design
 
 router = APIRouter(prefix="/api/admin", tags=["tenant-admin"])
 
@@ -382,7 +384,13 @@ async def put_design(
     event-owned fields, and answers with a tokenized preview URL. Nothing is
     published until POST .../design/publish."""
     event = await _get_event(ctx, event_id)
-    design = validate_design(body)
+    return await _save_design_draft(ctx, event, body)
+
+
+async def _save_design_draft(ctx: AuthContext, event: Event, raw_design: dict) -> dict:
+    """Validate + store an uploaded design as the event's draft; shared by the
+    JSON and HTML upload paths so both land in the identical pipeline."""
+    design = validate_design(raw_design)
     await check_media_ownership(ctx.session, design)
     token = secrets.token_urlsafe(16)
     event.design_draft = {
@@ -423,6 +431,87 @@ async def discard_design_draft(
     event = await _get_event(ctx, event_id)
     event.design_draft = None
     await ctx.session.commit()
+
+
+# --------------------------------------------- design round-trip in HTML
+# The END-USER editing surface: download a zip of .html files, edit them in
+# any editor (text, sections, own free-form markup), upload the files back.
+# Uploads convert to the SAME design JSON and land in the same
+# draft → preview → publish pipeline as the JSON path.
+
+MAX_HTML_UPLOAD = 5 * 1024 * 1024
+
+
+@router.get("/events/{event_id}/design/html")
+async def export_design_html(
+    event_id: uuid.UUID, ctx: AuthContext = Depends(tenant_admin_context)
+) -> Response:
+    """The published design as an editable HTML file set (zip)."""
+    event = await _get_event(ctx, event_id)
+    tenant = (
+        await ctx.session.execute(
+            select(Tenant).where(Tenant.id == ctx.identity.tenant_id)
+        )
+    ).scalar_one()
+    files = design_to_site_files(
+        event.config or {},
+        event_name=event.name,
+        brand_color=(tenant.brand_config or {}).get("theme_color"),
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, text in files.items():
+            zf.writestr(name, text)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={
+            "content-disposition": f'attachment; filename="{tenant.slug}-{event.slug}-html.zip"'
+        },
+    )
+
+
+@router.put("/events/{event_id}/design/html")
+async def import_design_html(
+    event_id: uuid.UUID,
+    file: UploadFile,
+    ctx: AuthContext = Depends(tenant_admin_context),
+) -> dict:
+    """Upload edited HTML (the exported zip, or a single index.html).
+
+    Parsed back into design JSON: annotated blocks keep their identity (the
+    designer can still edit them), user-authored markup becomes sanitized
+    自訂 HTML blocks, style.css becomes the site's custom CSS. Lands as a
+    DRAFT with a preview link — nothing goes live until publish."""
+    event = await _get_event(ctx, event_id)
+    data = await file.read()
+    if len(data) > MAX_HTML_UPLOAD:
+        raise ApiError(422, "design_invalid", "上傳檔案過大（上限 5MB）。")
+
+    files: dict[str, str] = {}
+    if data[:2] == b"PK":  # zip
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                for info in zf.infolist():
+                    name = os.path.basename(info.filename)
+                    if info.is_dir() or not name or name.startswith("."):
+                        continue
+                    if not (name.endswith(".html") or name == "style.css"):
+                        continue
+                    if info.file_size > MAX_HTML_UPLOAD:
+                        raise ApiError(422, "design_invalid", "上傳檔案過大（上限 5MB）。")
+                    files[name] = zf.read(info).decode("utf-8", errors="replace")
+        except zipfile.BadZipFile:
+            raise ApiError(422, "design_invalid", "ZIP 檔案無法讀取。")
+    else:
+        files["index.html"] = data.decode("utf-8", errors="replace")
+
+    design = site_files_to_design(files, event.config or {})
+    result = await _save_design_draft(ctx, event, design)
+    result["pages"] = ["index.html"] + [
+        n for n in sorted(files) if n.endswith(".html") and n != "index.html"
+    ]
+    return result
 
 
 # ------------------------------------------------------------------ tasks

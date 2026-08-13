@@ -147,6 +147,65 @@ async def test_event_patch_config_holds_same_block_whitelist(client, demo):
 
 
 @pytest.mark.asyncio
+async def test_html_export_edit_upload_loop(client, demo):
+    """The end-user HTML surface: download zip → edit text + add own markup
+    with a script → upload → draft preview carries the edit sanitized."""
+    import io
+    import zipfile
+
+    token = await login(client, "alpha", "admin-a")
+    event = demo["event_a"]
+
+    # Seed a published design so the export has content.
+    up = await client.put(
+        f"/api/admin/events/{event.id}/design", headers=bearer(token), json=_design()
+    )
+    assert up.status_code == 200, up.text
+    pub = await client.post(
+        f"/api/admin/events/{event.id}/design/publish", headers=bearer(token)
+    )
+    assert pub.status_code == 200
+
+    # Download the HTML zip.
+    resp = await client.get(
+        f"/api/admin/events/{event.id}/design/html", headers=bearer(token)
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/zip"
+    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    names = set(zf.namelist())
+    assert {"index.html", "guide.html", "style.css"} <= names
+    index = zf.read("index.html").decode()
+    assert "新橫幅" in index  # the seeded banner text is right there to edit
+
+    # Edit like a user: change text, append hand-written HTML with a script.
+    index = index.replace("新橫幅", "橫幅改好了").replace(
+        "</main>", '<div><h2>我自己寫的</h2><script>alert(1)</script></div></main>'
+    )
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z2:
+        z2.writestr("index.html", index)
+        z2.writestr("guide.html", zf.read("guide.html"))
+        z2.writestr("style.css", ".x{color:red}")
+
+    upload = await client.put(
+        f"/api/admin/events/{event.id}/design/html",
+        headers=bearer(token),
+        files={"file": ("site.zip", out.getvalue(), "application/zip")},
+    )
+    assert upload.status_code == 200, upload.text
+    preview_token = upload.json()["preview_token"]
+
+    prev = (await client.get(f"/api/public/site/alpha/walk?draft={preview_token}")).json()
+    cfg = prev["event"]["config"]
+    texts = str(cfg["puck"]["content"])
+    assert "橫幅改好了" in texts
+    assert "我自己寫的" in texts and "script" not in texts.lower()
+    assert cfg["puck"]["root"]["props"]["customCss"] == ".x{color:red}"
+    assert cfg["pages"][0]["slug"] == "guide"
+
+
+@pytest.mark.asyncio
 async def test_design_draft_discard(client, demo):
     token = await login(client, "alpha", "admin-a")
     event = demo["event_a"]

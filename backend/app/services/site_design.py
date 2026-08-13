@@ -34,6 +34,7 @@ ALLOWED_BLOCKS = frozenset(
         "Notice",
         "InfoList",
         "Places",
+        "HtmlBlock",
         # media & buttons
         "Banner",
         "Image",
@@ -72,7 +73,11 @@ def _bad(message: str) -> ApiError:
 def _walk_blocks(items, where: str) -> None:
     """Reject any block whose type is not in the whitelist, recursively:
     Columns nest children as arrays inside props, and Puck keeps drop-zone
-    content under a separate `zones` map handled by the caller."""
+    content under a separate `zones` map handled by the caller.
+
+    HtmlBlock content is SANITIZED here (in place) — this walk runs on every
+    write path (design upload, HTML upload, event PATCH), so user-authored
+    HTML can never reach the DB unsanitized regardless of entry point."""
     if items in (None, []):
         return
     if not isinstance(items, list):
@@ -86,6 +91,10 @@ def _walk_blocks(items, where: str) -> None:
         props = block.get("props")
         if props is not None and not isinstance(props, dict):
             raise _bad(f"設計格式不符：{where} 的 {btype} props 必須是物件。")
+        if btype == "HtmlBlock" and props:
+            from app.services.site_html import sanitize_html
+
+            props["html"] = sanitize_html(str(props.get("html") or ""))
         for value in (props or {}).values():
             if isinstance(value, list) and value and isinstance(value[0], dict) and value[0].get("type"):
                 _walk_blocks(value, f"{where} > {btype}")

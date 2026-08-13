@@ -256,11 +256,35 @@ Kiểm chứng: backend **98/98** (+10: validator nodb + vòng draft/preview/pub
 trùng `/e/[tenant]` — đúng 1 cây component); smoke viewer offline: banner/
 customCss/trang con từ JSON local render đủ.
 
-Còn mở (chưa làm): UI quản lý draft trong designer (hiện draft chỉ thao tác
-qua API/curl — designer vẫn import/export JSON như cũ); nav trong preview
-không tự mang `?draft=` (bấm link là về bản sống — muốn xem trang khác của
-draft phải tự thêm token vào URL); kho theme upload qua console (bảng
-`site_templates`) vẫn ở mục 5.
+Còn mở (chưa làm): nav trong preview không tự mang `?draft=` (bấm link là về
+bản sống — muốn xem trang khác của draft phải tự thêm token vào URL); kho
+theme upload qua console (bảng `site_templates`) vẫn ở mục 5.
+
+### 3f-bis. Cùng session — HTML round-trip cho NGƯỜI DÙNG CUỐI (yêu cầu chốt của user)
+
+User chốt: người dùng cuối phải cầm được **file HTML** về sửa (không phải
+JSON), upload lại là web nhận. Đã xây HTML thành **hình chiếu hai chiều** của
+design JSON — không phải renderer thứ hai:
+
+| Mảnh | Chi tiết |
+|---|---|
+| `app/services/site_html.py` (mới) | 2 chiều: `design_to_site_files` (mỗi trang 1 .html + style.css — block = thẻ ngữ nghĩa có `data-zb`/`data-zprops`, chữ nằm trong thẻ thật nên sửa HTML = sửa design) và `site_files_to_design` (parse ngược bằng BeautifulSoup; block đánh dấu giữ nguyên cấu trúc + id; markup KHÔNG đánh dấu → block `HtmlBlock` qua **sanitizer nh3** — script/event handler/js: URL bị lọc; zip là toàn site: thiếu file trang = xóa trang, thêm file .html = thêm trang) |
+| Block `HtmlBlock` (自訂 HTML) | site-blocks.jsx + ALLOWED_BLOCKS (17). Sanitize nằm TRONG `_walk_blocks` của validate → mọi đường ghi (JSON, HTML, PATCH event, builder gõ tay) đều qua một chỗ lọc |
+| `GET/PUT /api/admin/events/{id}/design/html` | Tải zip / nhận zip hoặc index.html đơn (≤5MB, chống zip lạ) → cùng `_save_design_draft` với đường JSON → **cùng pipeline draft/preview token/publish** |
+| UI designer | Khu mới "HTML 編輯": 匯出 HTML／匯入 HTML (kéo file là mở tab preview draft + nút 發佈草稿) |
+| File export | Có `<style>` xem-tạm khi mở file (KHÔNG phải giao diện thật — bản thật xem qua link `?draft=`), hướng dẫn zh-TW trong comment, block sống (StatsBand/TaskStops/chrome) hiện placeholder sọc "由平台自動渲染" — sửa vào đó bị bỏ qua khi upload |
+| Header/footer/theme token/zones | HTML không chở được → tự bê từ config đang publish sang khi import (sửa HTML không bao giờ làm mất chrome) |
+
+Kiểm chứng: **106/106 test** (+8: round-trip đủ 17 block kể cả Columns đệ quy
+slot left/right, sửa chữ/thêm li/xóa section, markup tự viết + script bị lọc,
+placeholder block sống bị bỏ qua, thêm trang bằng file mới, style.css ⇄
+customCss); e2e local: tải zip event BnK → sửa title + viết section tay kèm
+`<script>` → upload → preview đủ, script sạch → publish → web sống đổi, CSS
+`.my-own` áp lên site thật. Deps mới: `beautifulsoup4`, `nh3`.
+
+Ranh giới giữ nguyên: HTML upload KHÔNG bao giờ được serve nguyên xi — nó
+luôn bị parse về design JSON có validate/sanitize rồi mới render bằng
+renderer chung (không RCE, không XSS, builder vẫn mở sửa tiếp được).
 
 ## 4. Kiến trúc — điểm không được quên
 

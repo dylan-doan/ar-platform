@@ -125,6 +125,8 @@ export default function Page() {
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState('');
   const [error, setError] = useState('');
+  // Pending draft from an HTML upload: {preview_path} — published explicitly.
+  const [htmlDraft, setHtmlDraft] = useState(null);
   // Latest edits per document (Puck onChange) — survives tab switches
   // without forcing a save on every switch.
   const draftsRef = useRef({});
@@ -260,6 +262,67 @@ export default function Page() {
       downloadBlob(await res.blob(), name);
       setFlash('已匯出 Next.js 專案 ✓'); setTimeout(() => setFlash(''), 2500);
     } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  /** END-USER HTML surface: the site as editable .html files (zip). */
+  async function exportHtml() {
+    if (!event || busy) return;
+    setBusy(true); setError('');
+    try {
+      const s = adminSession.get('tenant');
+      const res = await fetch(`/api/admin/events/${event.id}/design/html`, {
+        headers: { authorization: `Bearer ${s?.token || ''}` },
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d?.error?.message || `HTTP ${res.status}`);
+      }
+      const name = (res.headers.get('content-disposition')?.match(/filename="(.+)"/) || [])[1] || 'site-html.zip';
+      downloadBlob(await res.blob(), name);
+      setFlash('已匯出 HTML 檔案 ✓'); setTimeout(() => setFlash(''), 2500);
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  /** Edited HTML back in (zip or single index.html) → server parses,
+   * sanitizes free-form markup, stores a DRAFT and hands back a preview
+   * link — the live site changes only on 發佈草稿. */
+  async function importHtml(file) {
+    if (!file || !event || busy) return;
+    setBusy(true); setError('');
+    try {
+      const s = adminSession.get('tenant');
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/admin/events/${event.id}/design/html`, {
+        method: 'PUT',
+        headers: { authorization: `Bearer ${s?.token || ''}` },
+        body: fd,
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d?.error?.message || `HTTP ${res.status}`);
+      setHtmlDraft(d);
+      window.open(d.preview_path, '_blank', 'noopener');
+      setFlash('HTML 已上傳為草稿 — 請在預覽分頁確認後按「發佈草稿」');
+      setTimeout(() => setFlash(''), 5000);
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  async function publishHtmlDraft() {
+    if (!event || busy) return;
+    setBusy(true); setError('');
+    try {
+      const s = adminSession.get('tenant');
+      const res = await fetch(`/api/admin/events/${event.id}/design/publish`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${s?.token || ''}` },
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d?.error?.message || `HTTP ${res.status}`);
+      setHtmlDraft(null);
+      // The published design now lives server-side; reload so the canvas
+      // reflects it instead of the stale pre-upload documents.
+      window.location.reload();
+    } catch (e) { setError(e.message); setBusy(false); }
   }
 
   function exportDesignJson() {
@@ -444,6 +507,29 @@ export default function Page() {
             <span style={{ fontSize: '14px', display: 'inline-flex', lineHeight: 0, color: 'var(--primary-600)' }}><Icon name="upload" /></span>匯入設計 JSON
             <input type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={(e) => { importDesignJson(e.target.files?.[0]); e.target.value = ''; }} />
           </label>
+        </div>
+
+        {/* End-user HTML round-trip: download .html files, edit anywhere,
+            upload back → draft + preview, publish to go live */}
+        <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: '10px', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text-subtle)', margin: '0 4px 2px' }}>HTML 編輯</div>
+          <button onClick={exportHtml} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '9px 10px', borderRadius: '9px', border: '1px solid var(--border-default)', background: '#fff', color: 'var(--text-body)', fontSize: '12px', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}>
+            <span style={{ fontSize: '14px', display: 'inline-flex', lineHeight: 0, color: 'var(--primary-600)' }}><Icon name={busy ? 'loader' : 'download'} /></span>匯出 HTML（可直接編輯）
+          </button>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '9px 10px', borderRadius: '9px', border: '1.5px dashed var(--border-default)', color: 'var(--text-body)', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+            <span style={{ fontSize: '14px', display: 'inline-flex', lineHeight: 0, color: 'var(--primary-600)' }}><Icon name="upload" /></span>匯入 HTML（zip 或 index.html）
+            <input type="file" accept=".zip,.html,application/zip,text/html" style={{ display: 'none' }} onChange={(e) => { importHtml(e.target.files?.[0]); e.target.value = ''; }} />
+          </label>
+          {htmlDraft && (
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <a href={htmlDraft.preview_path} target="_blank" rel="noopener noreferrer" style={{ flex: 1, textAlign: 'center', padding: '8px 10px', borderRadius: '9px', border: '1px solid var(--border-default)', background: '#fff', color: 'var(--text-body)', fontSize: '12px', fontWeight: 700, textDecoration: 'none' }}>
+                開啟預覽
+              </a>
+              <button onClick={publishHtmlDraft} disabled={busy} style={{ flex: 1, padding: '8px 10px', borderRadius: '9px', border: 'none', background: 'var(--primary-600)', color: '#fff', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                發佈草稿
+              </button>
+            </div>
+          )}
         </div>
 
         <div style={{ marginTop: 'auto', fontSize: '10.5px', color: 'var(--text-subtle)', lineHeight: 1.6, padding: '4px' }}>

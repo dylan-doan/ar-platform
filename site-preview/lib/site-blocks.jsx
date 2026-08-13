@@ -592,7 +592,7 @@ export function chromeDoc(event, which) {
 export const siteConfig = {
   categories: {
     live: { title: '活動資料（自動同步）', components: ['StatsBand', 'TaskStops'] },
-    content: { title: '內容', components: ['Heading', 'Paragraph', 'TextCard', 'Notice', 'InfoList', 'Places'] },
+    content: { title: '內容', components: ['Heading', 'Paragraph', 'TextCard', 'Notice', 'InfoList', 'Places', 'HtmlBlock'] },
     media: { title: '媒體與按鈕', components: ['Banner', 'Image', 'Button'] },
     layout: { title: '版面', components: ['Columns', 'Spacer', 'Divider'] },
     chrome: { title: '頁首／頁尾（全站共用）', components: ['SiteHeader', 'SiteFooter'] },
@@ -684,6 +684,18 @@ export const siteConfig = {
       },
       defaultProps: { text: '在此輸入段落內容。', align: 'left' },
       render: ParagraphBlock,
+    }),
+    HtmlBlock: withStyle({
+      label: '自訂 HTML',
+      fields: {
+        html: { type: 'textarea', label: 'HTML 內容（僅限安全標籤 — script／事件屬性會在儲存時移除）' },
+      },
+      defaultProps: { html: '' },
+      // Content is sanitized SERVER-SIDE (nh3, services/site_html.py) on every
+      // save/upload path before it reaches the DB — what renders here is
+      // already clean. This block is how user-authored HTML from the HTML
+      // round-trip survives inside a structured design.
+      render: ({ html }) => <div className="z-custom-html" dangerouslySetInnerHTML={{ __html: html || '' }} />,
     }),
     TextCard: withStyle({
       label: '文字卡片',
