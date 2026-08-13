@@ -1,0 +1,32 @@
+/* ─────────────────────────────────────────────────────────────────────────
+ * YOUR CSS — 客製化樣式
+ *
+ * This file is yours. It loads AFTER the site's own styles, so anything here
+ * wins. Re-exporting the project from the platform does not overwrite it.
+ *
+ * 這個檔案是您的。它會在網站樣式之後載入，因此這裡的設定優先。
+ * 從平台重新匯出專案時不會覆蓋此檔案。
+ *
+ * The site is built from design tokens, so overriding a variable restyles
+ * everything consistently — usually better than targeting single elements:
+ *
+ *   :root {
+ *     --site-radius: 0;            卡片圓角（直角）
+ *     --site-btn-radius: 8px;      按鈕圓角
+ *     --site-heading-weight: 900;  標題字重
+ *     --text-strong: #111;         標題文字顏色
+ *     --text-body: #444;           內文顏色
+ *     --surface-sunken: #f5f5f5;   卡片背景
+ *     --border-subtle: #e5e5e5;    卡片邊框
+ *   }
+ *
+ * Blocks also accept a CSS class from the designer (每個區塊的「樣式」分頁 →
+ * className), so you can target one specific block:
+ *
+ *   .my-hero h1 { letter-spacing: -0.04em; }
+ *
+ * NOTE — if you want the change to appear in the platform's drag-drop designer
+ * too, paste it into 活動設定 → 全站自訂 CSS instead. CSS written there travels
+ * with the design (and survives re-export); CSS in this file lives only in this
+ * project.
+ * ───────────────────────────────────────────────────────────────────────── */

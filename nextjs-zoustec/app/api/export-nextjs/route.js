@@ -44,10 +44,14 @@ async function backendPost(pathName, auth) {
 
 export async function POST(req) {
   const auth = req.headers.get('authorization') || '';
-  const { eventId } = await req.json().catch(() => ({}));
+  const { eventId, mode } = await req.json().catch(() => ({}));
   if (!auth || !eventId) {
     return NextResponse.json({ error: { message: '缺少授權或活動 ID。' } }, { status: 400 });
   }
+  // 'static' = plain HTML/CSS/JS bundle (no Node host, content read from the
+  // anonymous public endpoint in the browser). Default stays the Node/SSR
+  // project so existing customers are unaffected.
+  const isStatic = mode === 'static';
 
   // Snapshot via the caller's own admin auth (RLS-scoped to their tenant).
   let event, tasks, branding, others, apiKey;
@@ -60,7 +64,13 @@ export async function POST(req) {
     others = events.filter((e) => e.id !== eventId && e.is_active !== false);
     // The tenant's existing key (minted only if they have none) — baked in below
     // so the exported site reads live data without any manual setup.
-    apiKey = (await backendPost('/api/admin/tenant-api-key', auth)).key;
+    //
+    // The STATIC bundle deliberately does NOT get a key: its fetches run in the
+    // visitor's browser, where anything shipped is public. It reads the
+    // anonymous /api/public/site/... endpoint instead.
+    if (!isStatic) {
+      apiKey = (await backendPost('/api/admin/tenant-api-key', auth)).key;
+    }
   } catch (e) {
     return NextResponse.json(e.body || { error: { message: e.message } }, { status: e.status || 502 });
   }
@@ -97,14 +107,15 @@ export async function POST(req) {
   };
 
   const root = process.cwd();
+  const templateDir = isStatic ? 'export-static-template' : 'export-template';
   const zip = new JSZip();
-  await addDir(zip, path.join(root, 'export-template'), '');
+  await addDir(zip, path.join(root, templateDir), '');
 
-  const pkgRaw = await fs.readFile(path.join(root, 'export-template', 'package.json'), 'utf8');
-  const projectName = `${site.tenant_slug}-${event.slug}-site`.toLowerCase();
+  const pkgRaw = await fs.readFile(path.join(root, templateDir, 'package.json'), 'utf8');
+  const projectName = `${site.tenant_slug}-${event.slug}-site${isStatic ? '-static' : ''}`.toLowerCase();
   zip.file('package.json', pkgRaw.replace('{{PROJECT_NAME}}', projectName));
 
-  const readmeRaw = await fs.readFile(path.join(root, 'export-template', 'README.md'), 'utf8');
+  const readmeRaw = await fs.readFile(path.join(root, templateDir, 'README.md'), 'utf8');
   zip.file('README.md', readmeRaw.replaceAll('{{EVENT_NAME}}', event.name));
 
   // The REAL renderers + block library — byte-identical to what the platform
@@ -128,20 +139,39 @@ export async function POST(req) {
 
   const apiBase = (req.headers.get('origin') || '').replace(/\/$/, '');
   const liffId = branding.line_liff_id || process.env.NEXT_PUBLIC_LIFF_ID || '';
-  zip.file('.env.local', [
-    `ZOUSTEC_API_BASE=${apiBase}`,
-    `ZOUSTEC_TENANT_SLUG=${site.tenant_slug}`,
-    '# 貴公司專屬 API 金鑰（每個客戶一組，於 Zoustec 後台可再次查看或重新產生）。',
-    '# 內容即由平台即時讀取；此檔請勿公開。',
-    `ZOUSTEC_EXPORT_KEY=${apiKey || ''}`,
-    '# 內容快取秒數。0（預設）= 每次瀏覽都讀取平台，後台修改立即生效。',
-    'ZOUSTEC_REVALIDATE=0',
-    `ZOUSTEC_LIFF_ID=${liffId}`,
-    '',
-  ].join('\n'));
-  // Ignore every .env variant, not just the one shipped: a stray `.env` copied
-  // by the customer would otherwise commit the API key.
-  zip.file('.gitignore', ['node_modules/', '.next/', '.env', '.env.local', '.env*.local', ''].join('\n'));
+
+  if (isStatic) {
+    // NEXT_PUBLIC_* is compiled INTO the browser bundle, so only non-secret
+    // values may appear here. There is deliberately no API key: the site reads
+    // the anonymous public endpoint.
+    zip.file('.env.local', [
+      '# 這些值會編譯進前端 JS（瀏覽者可見）— 因此只放非機密資訊。',
+      '# 網站內容改由匿名公開端點讀取，不需要也不可放 API 金鑰。',
+      `NEXT_PUBLIC_ZOUSTEC_API_BASE=${apiBase}`,
+      `NEXT_PUBLIC_ZOUSTEC_TENANT_SLUG=${site.tenant_slug}`,
+      // Name matches siteLiffId() in components/event/EventSite.jsx, which the
+      // CTA/QR reads — a different name here would silently disable the LIFF
+      // deep link and fall back to a relative URL that does not resolve.
+      `NEXT_PUBLIC_LIFF_ID=${liffId}`,
+      '',
+    ].join('\n'));
+    zip.file('.gitignore', ['node_modules/', '.next/', 'out/', ''].join('\n'));
+  } else {
+    zip.file('.env.local', [
+      `ZOUSTEC_API_BASE=${apiBase}`,
+      `ZOUSTEC_TENANT_SLUG=${site.tenant_slug}`,
+      '# 貴公司專屬 API 金鑰（每個客戶一組，於 Zoustec 後台可再次查看或重新產生）。',
+      '# 內容即由平台即時讀取；此檔請勿公開。',
+      `ZOUSTEC_EXPORT_KEY=${apiKey || ''}`,
+      '# 內容快取秒數。0（預設）= 每次瀏覽都讀取平台，後台修改立即生效。',
+      'ZOUSTEC_REVALIDATE=0',
+      `ZOUSTEC_LIFF_ID=${liffId}`,
+      '',
+    ].join('\n'));
+    // Ignore every .env variant, not just the one shipped: a stray `.env` copied
+    // by the customer would otherwise commit the API key.
+    zip.file('.gitignore', ['node_modules/', '.next/', '.env', '.env.local', '.env*.local', ''].join('\n'));
+  }
 
   const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
   return new NextResponse(buf, {

@@ -1,0 +1,18 @@
+{
+  "name": "{{PROJECT_NAME}}",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "serve": "npx --yes serve out"
+  },
+  "dependencies": {
+    "@measured/puck": "^0.20.2",
+    "lucide-react": "0.441.0",
+    "next": "14.2.5",
+    "qrcode": "^1.5.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}
