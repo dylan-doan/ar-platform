@@ -176,3 +176,35 @@ async def test_event_config_roundtrip_for_all_types(client, demo):
             f"/api/admin/events/{created.json()['id']}", headers=bearer(token)
         )
         assert fetched.json()["config"] == config
+
+
+async def test_delete_tenant_requires_deactivation_then_cascades(client, demo):
+    resp = await client.post("/api/auth/platform", json={"id_token": "dev::boss::Boss"})
+    token = resp.json()["access_token"]
+    tid = demo["tenant_a"].id
+
+    # Step 1 guard: an active tenant cannot be deleted outright.
+    blocked = await client.delete(f"/api/platform/tenants/{tid}", headers=bearer(token))
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "tenant_active"
+
+    await client.patch(
+        f"/api/platform/tenants/{tid}", headers=bearer(token), json={"is_active": False}
+    )
+    gone = await client.delete(f"/api/platform/tenants/{tid}", headers=bearer(token))
+    assert gone.status_code == 204
+
+    # Tenant and its events are gone; the other tenant is untouched.
+    tenants = await client.get("/api/platform/tenants", headers=bearer(token))
+    assert [t["slug"] for t in tenants.json()] == ["beta"]
+    events = await client.get(f"/api/platform/tenants/{tid}/events", headers=bearer(token))
+    assert events.json() == []  # cascaded away
+    assert (await client.get("/api/public/tenants/beta/branding")).status_code == 200
+
+
+async def test_tenant_admin_cannot_delete_tenant(client, demo):
+    token = await login(client, "alpha", "admin-a")
+    resp = await client.delete(
+        f"/api/platform/tenants/{demo['tenant_a'].id}", headers=bearer(token)
+    )
+    assert resp.status_code == 403

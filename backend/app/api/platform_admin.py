@@ -1,15 +1,18 @@
 """Platform (master) admin endpoints (spec §3): tenant management + event
 overview. RBAC: platform_admin only; session is cross-tenant."""
 
+import os
 import secrets
+import shutil
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, Response
+from sqlalchemy import delete, func, select
 
 from app.api.deps import AuthContext, platform_admin_context
 from app.api.headless import hash_export_key
+from app.core.config import get_settings
 from app.core.crypto import decrypt_secret, encrypt_secret
 from app.core.errors import ApiError
 from app.core.security import hash_password
@@ -131,6 +134,44 @@ async def update_tenant(
     )
     await ctx.session.commit()
     return TenantOut.model_validate(tenant)
+
+
+@router.delete("/tenants/{tenant_id}", status_code=204)
+async def delete_tenant(
+    tenant_id: uuid.UUID,
+    ctx: AuthContext = Depends(platform_admin_context),
+) -> Response:
+    """Hard-delete a customer and everything it owns (events, members, stamps,
+    media, sites, 3D jobs, API keys — all FK ON DELETE CASCADE). Audit rows
+    are kept (tenant_id → NULL). Two-step safety: the tenant must already be
+    deactivated, so a single mis-click can never wipe a live customer."""
+    tenant = (
+        await ctx.session.execute(select(Tenant).where(Tenant.id == tenant_id))
+    ).scalar_one_or_none()
+    if tenant is None:
+        raise ApiError(404, "tenant_not_found", "找不到此租戶。")
+    if tenant.is_active:
+        raise ApiError(409, "tenant_active", "請先停用此租戶，再執行刪除。")
+
+    await record_audit(
+        ctx.session,
+        tenant_id=None,
+        actor_type="platform_admin",
+        actor_id=ctx.identity.subject_id,
+        action="tenant.deleted",
+        entity_type="tenant",
+        entity_id=tenant.id,
+        data={"slug": tenant.slug, "name": tenant.name},
+    )
+    # Core DELETE so Postgres cascades do the work (no ORM relationship walk).
+    await ctx.session.execute(delete(Tenant).where(Tenant.id == tenant_id))
+    await ctx.session.commit()
+
+    # Best-effort: scratch files for 3D jobs live on the ephemeral disk.
+    shutil.rmtree(
+        os.path.join(get_settings().media_dir, str(tenant_id)), ignore_errors=True
+    )
+    return Response(status_code=204)
 
 
 @router.post("/tenants/{tenant_id}/liff", response_model=TenantOut)

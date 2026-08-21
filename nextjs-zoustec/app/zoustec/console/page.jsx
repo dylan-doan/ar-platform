@@ -56,6 +56,7 @@ export default function Page() {
   const [mgrBusy, setMgrBusy] = useState(false);
   const [mgrError, setMgrError] = useState('');
   const [mgrFlash, setMgrFlash] = useState('');
+  const [delConfirm, setDelConfirm] = useState(''); // typed slug for hard-delete
   const [error, setError] = useState('');
   // Customer admin accounts (provisioned here; email/password dashboard login)
   const [mgrAdmins, setMgrAdmins] = useState(null);
@@ -85,7 +86,7 @@ export default function Page() {
         plan: t.plan || 'saas',
         mrr_ntd: t.mrr_ntd ?? '',
       });
-      setMgrFlash('');
+      setMgrFlash(''); setDelConfirm('');
       setMgrAdmins(null); setNewAdmin({ email: '', name: '' }); setTempCred(null);
       setMgrKeys(null); setNewKey(null);
       loadAdmins(tenantId);
@@ -260,6 +261,40 @@ export default function Page() {
       });
       setMgrForm({ ...mgrForm, line_liff_id: t.line_liff_id || '', channel_secret: '' });
       setMgrFlash(`LIFF app 已就緒 ✓ — ${t.line_liff_id}（Endpoint → https://${t.custom_domain}/）`);
+    } catch (e) {
+      if (e instanceof AuthRequired) return router.replace(loginUrl('/zoustec/console', { platform: true }));
+      setMgrError(e.message);
+    } finally { setMgrBusy(false); }
+  }
+
+  /** Step 1 of deletion (and plain suspension): flip is_active. A deactivated
+   * tenant can no longer log in or serve its sites, but keeps all data. */
+  async function toggleActive() {
+    if (!mgr || mgrBusy) return;
+    const next = !mgr.is_active;
+    if (next === false && !window.confirm(`停用「${mgr.name}」？客戶將無法登入，其網站也會停止服務。資料會保留。`)) return;
+    setMgrBusy(true); setMgrError(''); setMgrFlash('');
+    try {
+      const t = await platformApi(`/api/platform/tenants/${mgr.id}`, { method: 'PATCH', body: { is_active: next } });
+      setMgr(t); setDelConfirm('');
+      setMgrFlash(next ? '已重新啟用 ✓' : '已停用 — 如需永久刪除，請在下方輸入代號確認。');
+      setOv(await platformApi('/api/platform/overview?months=6'));
+    } catch (e) {
+      if (e instanceof AuthRequired) return router.replace(loginUrl('/zoustec/console', { platform: true }));
+      setMgrError(e.message);
+    } finally { setMgrBusy(false); }
+  }
+
+  /** Step 2: hard-delete. Server refuses while is_active; UI additionally
+   * requires retyping the slug so the button is never one click away. */
+  async function deleteTenant() {
+    if (!mgr || mgrBusy || mgr.is_active || delConfirm.trim() !== mgr.slug) return;
+    if (!window.confirm(`永久刪除「${mgr.name}」及其所有活動、會員、媒體與網站？此操作無法復原。`)) return;
+    setMgrBusy(true); setMgrError('');
+    try {
+      await platformApi(`/api/platform/tenants/${mgr.id}`, { method: 'DELETE' });
+      setMgr(null); setMgrForm(null); setDelConfirm('');
+      setOv(await platformApi('/api/platform/overview?months=6'));
     } catch (e) {
       if (e instanceof AuthRequired) return router.replace(loginUrl('/zoustec/console', { platform: true }));
       setMgrError(e.message);
@@ -505,6 +540,26 @@ export default function Page() {
               <div style={{marginTop:'8px', padding:'10px 12px', borderRadius:'8px', background:'var(--status-success-bg, #ECFDF5)', color:'var(--status-success-fg, #047857)', fontSize:'12px', fontWeight:'600', lineHeight:1.7}}>
                 此客戶的 API 金鑰 — 填入其網站的 <span style={{fontFamily:'var(--font-mono)'}}>.env.local</span>（ZOUSTEC_EXPORT_KEY）：<br/>
                 <span style={{fontFamily:'var(--font-mono)', fontWeight:'700', wordBreak:'break-all'}}>{newKey}</span>
+              </div>
+            )}
+          </div>
+
+          {/* ── Danger zone: deactivate → (type slug) → delete ─────────── */}
+          <div style={{marginBottom:'14px', padding:'12px 14px', borderRadius:'10px', border:'1px solid var(--status-danger-border, #FECACA)', background:'var(--status-danger-bg, #FEF2F2)'}}>
+            <div style={{fontSize:'12px', fontWeight:'800', color:'var(--status-danger-fg)', marginBottom:'6px'}}>危險區域</div>
+            <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'10px'}}>
+              <div style={{flex:1, fontSize:'11.5px', color:'var(--text-body)', lineHeight:1.5}}>
+                {mgr.is_active ? '目前狀態：啟用中。停用後客戶無法登入、網站停止服務，資料保留。' : '目前狀態：已停用。可重新啟用，或在下方永久刪除。'}
+              </div>
+              <button onClick={toggleActive} disabled={mgrBusy} style={{height:'34px', padding:'0 14px', borderRadius:'8px', border:'1px solid var(--border-default)', background:'#fff', color:'var(--text-body)', fontSize:'12px', fontWeight:'700', cursor:'pointer', whiteSpace:'nowrap', opacity: mgrBusy ? .6 : 1}}>{mgr.is_active ? '停用租戶' : '重新啟用'}</button>
+            </div>
+            {!mgr.is_active && (
+              <div>
+                <div style={{fontSize:'11.5px', color:'var(--text-body)', marginBottom:'6px', lineHeight:1.5}}>永久刪除會移除所有活動、會員、集章、媒體、3D 模型與網站版本，<b>無法復原</b>。請輸入租戶代號 <span style={{fontFamily:'var(--font-mono)', fontWeight:'700'}}>{mgr.slug}</span> 以確認：</div>
+                <div style={{display:'flex', gap:'8px'}}>
+                  <input value={delConfirm} onChange={(e) => setDelConfirm(e.target.value)} placeholder={mgr.slug} style={{flex:1, height:'36px', border:'1px solid var(--border-default)', borderRadius:'8px', padding:'0 12px', fontSize:'13px', fontFamily:'var(--font-mono)', outline:'none'}} />
+                  <button onClick={deleteTenant} disabled={mgrBusy || delConfirm.trim() !== mgr.slug} style={{height:'36px', padding:'0 14px', borderRadius:'8px', border:'none', background:'var(--status-danger-fg)', color:'#fff', fontSize:'12px', fontWeight:'700', cursor:'pointer', whiteSpace:'nowrap', opacity: (mgrBusy || delConfirm.trim() !== mgr.slug) ? .5 : 1}}>永久刪除</button>
+                </div>
               </div>
             )}
           </div>
