@@ -208,3 +208,68 @@ async def test_tenant_admin_cannot_delete_tenant(client, demo):
         f"/api/platform/tenants/{demo['tenant_a'].id}", headers=bearer(token)
     )
     assert resp.status_code == 403
+
+
+async def test_tenant_admin_provisions_own_liff(client, demo, monkeypatch):
+    """Self-service LINE binding: the tenant admin pastes Channel ID + Secret
+    on the branding page and the platform creates the LIFF app for them
+    (LINE mocked). Same rules as the console path: domain first, then create,
+    then re-point on later calls."""
+    calls = {}
+
+    async def fake_token(channel_id, channel_secret):
+        calls["token"] = (channel_id, channel_secret)
+        return "tok-abc"
+
+    async def fake_create(token, endpoint, description):
+        calls["create"] = (token, endpoint, description)
+        return "7770001111-SelfLiff"
+
+    async def fake_update(token, liff_id, endpoint):
+        calls["update"] = (token, liff_id, endpoint)
+
+    monkeypatch.setattr("app.services.line_liff.issue_channel_token", fake_token)
+    monkeypatch.setattr("app.services.line_liff.create_liff_app", fake_create)
+    monkeypatch.setattr("app.services.line_liff.update_liff_endpoint", fake_update)
+
+    token = await login(client, "alpha", "admin-a")
+
+    # Domain not bound yet → explicit 422, nothing sent to LINE.
+    r = await client.post("/api/admin/branding/liff", headers=bearer(token),
+                          json={"channel_id": "7770001111", "channel_secret": "s3"})
+    assert r.status_code == 422 and r.json()["error"]["code"] == "custom_domain_required"
+    assert "token" not in calls
+
+    r = await client.patch("/api/admin/branding", headers=bearer(token),
+                           json={"custom_domain": "alpha.example.tw"})
+    assert r.status_code == 200, r.text
+
+    # Missing credentials → 422 before touching LINE.
+    r = await client.post("/api/admin/branding/liff", headers=bearer(token), json={})
+    assert r.status_code == 422 and r.json()["error"]["code"] == "channel_credentials_required"
+
+    # Create: endpoint is the tenant's own domain; LIFF ID lands in branding.
+    r = await client.post("/api/admin/branding/liff", headers=bearer(token),
+                          json={"channel_id": "7770001111", "channel_secret": "s3"})
+    assert r.status_code == 200, r.text
+    assert r.json()["line_liff_id"] == "7770001111-SelfLiff"
+    assert calls["token"] == ("7770001111", "s3")
+    assert calls["create"][1] == "https://alpha.example.tw/"
+    assert "channel_secret" not in r.text and "s3" not in r.json().values()
+
+    # Second call with stored credentials only re-points the existing app.
+    r = await client.post("/api/admin/branding/liff", headers=bearer(token), json={})
+    assert r.status_code == 200, r.text
+    assert calls["update"] == ("tok-abc", "7770001111-SelfLiff", "https://alpha.example.tw/")
+
+    # Visible publicly (CTA / QR pick the tenant LIFF), and only for this tenant.
+    pub = await client.get("/api/public/tenants/alpha/branding")
+    assert pub.json()["line_liff_id"] == "7770001111-SelfLiff"
+    other = await client.get("/api/public/tenants/beta/branding")
+    assert other.json()["line_liff_id"] != "7770001111-SelfLiff"
+
+    # Plain members cannot bind LINE.
+    member = await login(client, "alpha", "alice")
+    r = await client.post("/api/admin/branding/liff", headers=bearer(member),
+                          json={"channel_id": "x", "channel_secret": "y"})
+    assert r.status_code == 403

@@ -334,6 +334,24 @@ download zip đúng layout doc. Chưa làm: domain khách trỏ thẳng site tĩ
 key per-event + ràng buộc domain, theme catalog riêng (ghi ở
 TRIEN-KHAI-WEBSITE-TINH.md §6).
 
+## 3h. Session 2026-08-21 — tenant TỰ kết nối LINE (LIFF self-service)
+
+Yêu cầu: sơ đồ "LINE Entry" của khách vẽ tenant admin tự Connect LINE /
+Create LIFF / Map domain → chuyển code theo luồng đích đó.
+
+| Thay đổi | Chi tiết |
+|---|---|
+| `services/line_liff.py` → `provision_for_tenant()` | Gom logic tạo/cập nhật LIFF (lưu Channel ID/Secret, kiểm tra domain, xin token, create/update app, audit) thành 1 hàm dùng chung. Caller commit |
+| `POST /api/admin/branding/liff` (mới) | Tenant admin dán Channel ID + Secret → hệ thống tạo LIFF trỏ `https://{custom_domain}/`. Cùng quy tắc với console: 422 `custom_domain_required` / `channel_credentials_required`; audit actor `tenant_admin`. Trả `BrandingOut` |
+| `POST /api/platform/tenants/{id}/liff` | Giữ nguyên contract, gọi service chung — Zoustec vẫn làm hộ được |
+| `/admin/dashboard/branding` | Mục mới「LINE 入口（專屬 LIFF）」: hiện LIFF hiện tại + link `liff.line.me/{id}`, hướng dẫn 3 bước tạo LINE Login channel, ô Channel ID / Secret (secret không hiển thị lại), nút 自動建立 LIFF (khóa khi chưa lưu domain) |
+| Test | `test_tenant_admin_provisions_own_liff` (domain trước, thiếu creds, create, re-point, public branding, member 403). 115/115 |
+| Docs/sơ đồ | CHECKLIST VI/EN VIII.4 + mục 5, API-UI-MAP, `docs/flows/` (bước LINE chuyển từ luồng Zoustec sang luồng khách; Zoustec giữ nhánh "làm hộ") |
+
+Ràng buộc còn nguyên: LINE không có API tạo channel → tenant vẫn phải tự tạo
+LINE Login channel trên Developers Console rồi dán ID/Secret. LIFF endpoint
+là root domain tenant (một LIFF cho mọi sự kiện), không map từng event.
+
 ## 4. Kiến trúc — điểm không được quên
 
 - **Site khách = 1 khung + 1 API + 1 key**: `EventSite.jsx` và bạn bè là

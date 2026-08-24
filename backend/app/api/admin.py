@@ -46,7 +46,9 @@ from app.schemas import (
     TaskLocation,
     TaskStat,
     TaskUpdate,
+    TenantLiffProvisionRequest,
 )
+from app.services import line_liff
 from app.services.audit import record_audit
 from app.services.site_design import (
     apply_design,
@@ -785,13 +787,8 @@ async def delete_task(
 
 # ------------------------------------------------------------------ branding (white-label)
 
-@router.get("/branding", response_model=BrandingOut)
-async def get_branding(ctx: AuthContext = Depends(tenant_admin_context)) -> BrandingOut:
-    tenant = (
-        await ctx.session.execute(
-            select(Tenant).where(Tenant.id == ctx.identity.tenant_id)
-        )
-    ).scalar_one()
+
+def _branding_out(tenant: Tenant) -> BrandingOut:
     brand = tenant.brand_config or {}
     return BrandingOut(
         tenant_slug=tenant.slug,
@@ -804,17 +801,28 @@ async def get_branding(ctx: AuthContext = Depends(tenant_admin_context)) -> Bran
         home_mode=brand.get("home_mode", "auto"),
         home_event_slug=brand.get("home_event_slug"),
         landing_title=brand.get("landing_title"),
-        landing_tagline=brand.get("landing_tagline"),
         landing_hero=brand.get("landing_hero"),
+        landing_tagline=brand.get("landing_tagline"),
     )
+
+
+@router.get("/branding", response_model=BrandingOut)
+async def get_branding(ctx: AuthContext = Depends(tenant_admin_context)) -> BrandingOut:
+    tenant = (
+        await ctx.session.execute(
+            select(Tenant).where(Tenant.id == ctx.identity.tenant_id)
+        )
+    ).scalar_one()
+    return _branding_out(tenant)
 
 
 @router.patch("/branding", response_model=BrandingOut)
 async def update_branding(
     body: BrandingUpdate, ctx: AuthContext = Depends(tenant_admin_context)
 ) -> BrandingOut:
-    """Tenant admin edits logo + theme color. `hide_powered_by`, custom domain
-    and LINE binding are platform-admin-only (see /api/platform/tenants)."""
+    """Tenant admin edits logo, theme color, custom domain and landing page.
+    `hide_powered_by` stays platform-admin-only (see /api/platform/tenants);
+    LINE binding has its own endpoint below (POST /branding/liff)."""
     tenant = (
         await ctx.session.execute(
             select(Tenant).where(Tenant.id == ctx.identity.tenant_id)
@@ -860,20 +868,31 @@ async def update_branding(
     await _audit_admin(ctx, "branding.updated", "tenant", tenant.id, {"fields": list(body.model_dump(exclude_unset=True))})
     await ctx.session.commit()
 
-    return BrandingOut(
-        tenant_slug=tenant.slug,
-        tenant_name=tenant.name,
-        logo_url=brand.get("logo_url"),
-        theme_color=brand.get("theme_color"),
-        show_powered_by=not brand.get("hide_powered_by", False),
-        line_liff_id=tenant.line_liff_id,
-        custom_domain=tenant.custom_domain,
-        home_mode=brand.get("home_mode", "auto"),
-        home_event_slug=brand.get("home_event_slug"),
-        landing_title=brand.get("landing_title"),
-        landing_tagline=brand.get("landing_tagline"),
-        landing_hero=brand.get("landing_hero"),
+    return _branding_out(tenant)
+
+
+@router.post("/branding/liff", response_model=BrandingOut)
+async def provision_own_liff(
+    body: TenantLiffProvisionRequest,
+    ctx: AuthContext = Depends(tenant_admin_context),
+) -> BrandingOut:
+    """Self-service LINE binding (spec §VIII / LINE module item 5): the tenant
+    admin pastes their LINE Login channel's Channel ID + Secret and the
+    platform creates (or re-points) the LIFF app via the LIFF Server API.
+    Same flow the Zoustec console uses — the console button remains as the
+    assisted fallback. Requires the custom domain to be bound first, since
+    the LIFF endpoint points at it."""
+    tenant = (
+        await ctx.session.execute(
+            select(Tenant).where(Tenant.id == ctx.identity.tenant_id)
+        )
+    ).scalar_one()
+    await line_liff.provision_for_tenant(
+        ctx.session, tenant, body.channel_id, body.channel_secret,
+        actor_type="tenant_admin", actor_id=ctx.identity.subject_id,
     )
+    await ctx.session.commit()
+    return _branding_out(tenant)
 
 
 # ------------------------------------------------------------------ users

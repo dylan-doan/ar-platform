@@ -16,12 +16,14 @@ export default function Page() {
   const [busy, setBusy] = useState('');
   const [flash, setFlash] = useState('');
   const [error, setError] = useState('');
+  const [line, setLine] = useState({ channel_id: '', channel_secret: '' });
 
   useEffect(() => {
     (async () => {
       try {
         const b = await adminApi('/api/admin/branding');
         setBrand(b);
+        if (b.line_liff_id && b.line_liff_id.includes('-')) setLine((l) => ({ ...l, channel_id: b.line_liff_id.split('-')[0] }));
         setForm({
           logo_url: b.logo_url || '',
           theme_color: b.theme_color || '#0E7490',
@@ -96,6 +98,25 @@ export default function Page() {
     } catch (e) { if (e instanceof AuthRequired) return router.replace(loginUrl('/admin/dashboard/branding')); setError(e.message); }
     finally { setBusy(''); }
   }
+
+  async function provisionLiff() {
+    if (busy) return;
+    setBusy('liff'); setError('');
+    try {
+      const body = {};
+      if (line.channel_id.trim()) body.channel_id = line.channel_id.trim();
+      if (line.channel_secret.trim()) body.channel_secret = line.channel_secret.trim();
+      const b = await adminApi('/api/admin/branding/liff', { method: 'POST', body });
+      setBrand(b);
+      setLine({ channel_id: b.line_liff_id ? b.line_liff_id.split('-')[0] : line.channel_id, channel_secret: '' });
+      note('LINE 專屬 LIFF 已建立 ✓');
+    } catch (e) { if (e instanceof AuthRequired) return router.replace(loginUrl('/admin/dashboard/branding')); setError(e.message); }
+    finally { setBusy(''); }
+  }
+
+  const liffId = brand?.line_liff_id || '';
+  const domainSaved = !!(brand?.custom_domain);
+  const liffLink = liffId ? `https://liff.line.me/${liffId}` : '';
 
   return (
 <AdminShell active="brand">
@@ -186,8 +207,35 @@ export default function Page() {
             這些內容顯示於「活動總覽頁」（多活動時的網域首頁）。各活動網站的標題、介紹與封面請於<b>網站產生器</b>編輯。
           </div>
 
+          <div style={{borderTop:'1px solid var(--border-subtle)', paddingTop:'16px', fontSize:'13px', fontWeight:'700', color:'var(--text-strong)', marginBottom:'6px'}}>LINE 入口（專屬 LIFF）</div>
+          <div style={{fontSize:'11.5px', color:'var(--text-subtle)', lineHeight:1.7, marginBottom:'12px'}}>
+            目前入口：{liffId
+              ? <><span style={{fontFamily:'var(--font-mono)', color:'var(--text-body)', fontWeight:'700'}}>{liffId}</span>（貴組織專屬）— 分享連結 <a href={liffLink} target="_blank" rel="noreferrer" style={{color:'var(--primary-600)', fontWeight:'700', fontFamily:'var(--font-mono)'}}>{liffLink} ↗</a>，可放入 LINE 官方帳號的 Rich Menu、訊息按鈕或 QR Code。</>
+              : <>平台共用 LIFF（尚未綁定貴組織的 LINE channel）。</>}
+          </div>
+          <ol style={{fontSize:'11.5px', color:'var(--text-subtle)', lineHeight:1.8, margin:'0 0 12px 18px', padding:0}}>
+            <li>前往 <a href="https://developers.line.biz/console/" target="_blank" rel="noreferrer" style={{color:'var(--primary-600)', fontWeight:'700'}}>LINE Developers Console</a>，在貴組織的 Provider 下建立一個 <b>LINE Login</b> channel（LINE 未提供 API，此步驟需手動）。</li>
+            <li>在該 channel 的 <b>Basic settings</b> 分頁複製 <b>Channel ID</b> 與 <b>Channel secret</b>，貼到下方。</li>
+            <li>點「自動建立 LIFF」— 平台會在您的 channel 內建立 LIFF app，入口網址指向您的自訂網域；日後更換網域再按一次即可更新。</li>
+          </ol>
+          {!domainSaved && (
+            <div style={{fontSize:'11.5px', fontWeight:'600', color:'var(--status-warning-fg, #92400e)', background:'var(--status-warning-bg, #fef3c7)', borderRadius:'8px', padding:'8px 10px', marginBottom:'10px'}}>
+              請先在上方填寫自訂網域並按「儲存」— LIFF 入口網址將指向該網域。
+            </div>
+          )}
+          <label style={{fontSize:'12px', fontWeight:'600', color:'var(--text-body)', display:'block', marginBottom:'6px'}}>Channel ID</label>
+          <input value={line.channel_id} onChange={(e) => setLine({ ...line, channel_id: e.target.value })} placeholder="例：2010638570" inputMode="numeric"
+            style={{width:'100%', height:'40px', border:'1px solid var(--border-default)', borderRadius:'9px', padding:'0 13px', fontSize:'13.5px', fontFamily:'var(--font-mono)', outline:'none', marginBottom:'10px'}} />
+          <label style={{fontSize:'12px', fontWeight:'600', color:'var(--text-body)', display:'block', marginBottom:'6px'}}>Channel secret{liffId ? '（已儲存；僅在更換時重新填寫）' : ''}</label>
+          <input type="password" value={line.channel_secret} onChange={(e) => setLine({ ...line, channel_secret: e.target.value })} placeholder={liffId ? '留空 = 使用已儲存的 secret' : '貼上 Channel secret'} autoComplete="off"
+            style={{width:'100%', height:'40px', border:'1px solid var(--border-default)', borderRadius:'9px', padding:'0 13px', fontSize:'13.5px', fontFamily:'var(--font-mono)', outline:'none', marginBottom:'10px'}} />
+          <button onClick={provisionLiff} disabled={busy === 'liff' || !domainSaved}
+            style={{display:'inline-flex', alignItems:'center', gap:'8px', height:'38px', padding:'0 16px', borderRadius:'8px', background:'#06C755', color:'#fff', fontSize:'13px', fontWeight:'700', border:'none', cursor: (busy === 'liff' || !domainSaved) ? 'not-allowed' : 'pointer', opacity: (busy === 'liff' || !domainSaved) ? .55 : 1, marginBottom:'14px'}}>
+            <span style={{fontSize:'15px', display:'inline-flex', lineHeight:'0'}}><Icon name={busy === 'liff' ? 'loader' : 'link'} /></span>{busy === 'liff' ? '建立中…' : liffId ? '更新 LIFF 入口網址' : '自動建立 LIFF'}
+          </button>
+
           <div style={{borderTop:'1px solid var(--border-subtle)', paddingTop:'14px', fontSize:'11px', color:'var(--text-subtle)', lineHeight:1.6}}>
-            LINE 綁定（LIFF 專屬通道）與「Powered by Zoustec」開關由平台方（Zoustec）於平台後台管理。組織名稱由平台方協助變更。
+            「Powered by Zoustec」開關由平台方（Zoustec）於平台後台管理；組織名稱由平台方協助變更。若不便自行設定 LINE，也可請 Zoustec 代為綁定。
           </div>
         </div>
 

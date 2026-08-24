@@ -191,48 +191,9 @@ async def provision_liff(
     if tenant is None:
         raise ApiError(404, "tenant_not_found", "找不到此租戶。")
 
-    if body.channel_id and body.channel_id.strip():
-        tenant.line_channel_id = body.channel_id.strip()
-    if body.channel_secret and body.channel_secret.strip():
-        tenant.line_channel_secret = body.channel_secret.strip()
-
-    if not tenant.line_channel_id or not tenant.line_channel_secret:
-        raise ApiError(
-            422, "channel_credentials_required",
-            "需要 Channel ID 與 Channel Secret（在 LINE Login channel 的 Basic settings 分頁）。",
-        )
-    if not tenant.custom_domain:
-        raise ApiError(
-            422, "custom_domain_required",
-            "請先為此客戶綁定自訂網域 — LIFF Endpoint 將指向該網域。",
-        )
-
-    endpoint = f"https://{tenant.custom_domain}/"
-    token = await line_liff.issue_channel_token(
-        tenant.line_channel_id, tenant.line_channel_secret
-    )
-
-    # LIFF IDs are prefixed with the channel ID — only update when the current
-    # app belongs to this channel; a different channel (e.g. still on the
-    # shared platform app) means create a new app.
-    if tenant.line_liff_id and tenant.line_liff_id.split("-", 1)[0] == tenant.line_channel_id:
-        await line_liff.update_liff_endpoint(token, tenant.line_liff_id, endpoint)
-        action = "tenant.liff_endpoint_updated"
-    else:
-        tenant.line_liff_id = await line_liff.create_liff_app(
-            token, endpoint, f"{tenant.name} AR"
-        )
-        action = "tenant.liff_created"
-
-    await record_audit(
-        ctx.session,
-        tenant_id=tenant.id,
-        actor_type="platform_admin",
-        actor_id=ctx.identity.subject_id,
-        action=action,
-        entity_type="tenant",
-        entity_id=tenant.id,
-        data={"liff_id": tenant.line_liff_id, "endpoint": endpoint},
+    await line_liff.provision_for_tenant(
+        ctx.session, tenant, body.channel_id, body.channel_secret,
+        actor_type="platform_admin", actor_id=ctx.identity.subject_id,
     )
     await ctx.session.commit()
     return TenantOut.model_validate(tenant)

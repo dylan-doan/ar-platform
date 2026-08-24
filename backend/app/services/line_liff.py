@@ -16,6 +16,7 @@ import httpx
 import structlog
 
 from app.core.errors import ApiError
+from app.services.audit import record_audit
 
 logger = structlog.get_logger()
 
@@ -94,3 +95,56 @@ async def update_liff_endpoint(token: str, liff_id: str, endpoint_url: str) -> N
     if resp.status_code != 200:
         logger.warning("liff_update_failed", status=resp.status_code, body=resp.text[:300])
         raise ApiError(502, "liff_update_failed", f"更新 LIFF app 時 LINE 回傳錯誤：{resp.text[:200]}")
+
+
+async def provision_for_tenant(
+    session, tenant, channel_id: str | None, channel_secret: str | None,
+    *, actor_type: str, actor_id,
+) -> str:
+    """Create — or update the endpoint of — the tenant's LIFF app.
+
+    Shared by the platform console and the tenant-admin dashboard (self-service).
+    Stores the credentials on the tenant, points the LIFF endpoint at the
+    tenant's custom domain, and writes the audit row. Caller commits.
+    Returns the audit action performed.
+    """
+    if channel_id and channel_id.strip():
+        tenant.line_channel_id = channel_id.strip()
+    if channel_secret and channel_secret.strip():
+        tenant.line_channel_secret = channel_secret.strip()
+
+    if not tenant.line_channel_id or not tenant.line_channel_secret:
+        raise ApiError(
+            422, "channel_credentials_required",
+            "需要 Channel ID 與 Channel Secret（在 LINE Login channel 的 Basic settings 分頁）。",
+        )
+    if not tenant.custom_domain:
+        raise ApiError(
+            422, "custom_domain_required",
+            "請先綁定自訂網域 — LIFF Endpoint 將指向該網域。",
+        )
+
+    endpoint = f"https://{tenant.custom_domain}/"
+    token = await issue_channel_token(tenant.line_channel_id, tenant.line_channel_secret)
+
+    # LIFF IDs are prefixed with the channel ID — only update when the current
+    # app belongs to this channel; a different channel (e.g. still on the
+    # shared platform app) means create a new app.
+    if tenant.line_liff_id and tenant.line_liff_id.split("-", 1)[0] == tenant.line_channel_id:
+        await update_liff_endpoint(token, tenant.line_liff_id, endpoint)
+        action = "tenant.liff_endpoint_updated"
+    else:
+        tenant.line_liff_id = await create_liff_app(token, endpoint, f"{tenant.name} AR")
+        action = "tenant.liff_created"
+
+    await record_audit(
+        session,
+        tenant_id=tenant.id,
+        actor_type=actor_type,
+        actor_id=actor_id,
+        action=action,
+        entity_type="tenant",
+        entity_id=tenant.id,
+        data={"liff_id": tenant.line_liff_id, "endpoint": endpoint},
+    )
+    return action
