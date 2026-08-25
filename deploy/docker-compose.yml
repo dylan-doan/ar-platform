@@ -63,6 +63,7 @@ services:
       CORS_ORIGINS: http://localhost:3000,http://localhost
       RUN_MIGRATIONS_ON_START: "true"
       SEED_ON_START: "true"
+      SEED_DEMO_TENANTS: "true"
     ports:
       - "8000:8000"
     depends_on:

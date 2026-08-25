@@ -4,6 +4,12 @@ demo runs immediately AND cross-tenant isolation is observable.
 Idempotent: safe to run repeatedly. Runs on the owner connection (not the RLS
 app role) but always sets explicit tenant_ids.
 
+Two layers, both behind SEED_ON_START:
+  * always     — dev platform boss + the Zoustec console account from env
+  * opt-in     — the two demo tenants below, only when SEED_DEMO_TENANTS=true
+                 (local docker-compose). Production leaves it off so a tenant
+                 the platform admin deleted stays deleted across restarts.
+
 Dev logins (AUTH_DEV_MODE=true, id_token format `dev::{line_user_id}::{name}`):
   dev::admin-taipei::Taipei Admin   → tenant_admin of tenant "taipei"
   dev::admin-mall::Mall Admin       → tenant_admin of tenant "riverside-mall"
@@ -212,20 +218,6 @@ async def seed() -> None:
                     tenant.custom_domain = custom_domain
             return tenant
 
-        # taipei.lvh.me resolves to 127.0.0.1 — lets the custom-domain flow be
-        # tested locally without touching /etc/hosts.
-        taipei = await get_or_create_tenant(
-            "taipei",
-            "Taipei City Tourism",
-            {"theme_color": "#0ea5e9"},
-            custom_domain="taipei.lvh.me",
-        )
-        mall = await get_or_create_tenant(
-            "riverside-mall",
-            "Riverside Mall",
-            {"theme_color": "#f59e0b"},
-        )
-
         async def get_or_create_admin(tenant: Tenant, line_user_id: str, name: str) -> None:
             member = (
                 await session.execute(
@@ -244,9 +236,6 @@ async def seed() -> None:
                         role="tenant_admin",
                     )
                 )
-
-        await get_or_create_admin(taipei, "admin-taipei", "Taipei Admin")
-        await get_or_create_admin(mall, "admin-mall", "Mall Admin")
 
         boss = (
             await session.execute(
@@ -327,21 +316,40 @@ async def seed() -> None:
                     )
                 )
 
-        await get_or_create_event(
-            taipei, "city-walk-2026", "Taipei City Walk 2026", "city", 3,
-            DEMO_TASKS_TAIPEI, CITY_CONFIG,
-        )
-        await get_or_create_event(
-            taipei, "xiangshan-hike", "Elephant Mountain Hike", "hiking", 2,
-            DEMO_TASKS_HIKING, HIKING_CONFIG,
-        )
-        await get_or_create_event(
-            mall, "summer-stamp-rally", "Summer Stamp Rally", "shopping", 2,
-            DEMO_TASKS_MALL, SHOPPING_CONFIG,
-        )
+        # Demo tenants are OPT-IN (SEED_DEMO_TENANTS=true, local dev only).
+        # On production every start would otherwise resurrect "taipei" and
+        # "riverside-mall" right after the platform admin deleted them.
+        if settings.seed_demo_tenants:
+            # taipei.lvh.me resolves to 127.0.0.1 — lets the custom-domain
+            # flow be tested locally without touching /etc/hosts.
+            taipei = await get_or_create_tenant(
+                "taipei",
+                "Taipei City Tourism",
+                {"theme_color": "#0ea5e9"},
+                custom_domain="taipei.lvh.me",
+            )
+            mall = await get_or_create_tenant(
+                "riverside-mall",
+                "Riverside Mall",
+                {"theme_color": "#f59e0b"},
+            )
+            await get_or_create_admin(taipei, "admin-taipei", "Taipei Admin")
+            await get_or_create_admin(mall, "admin-mall", "Mall Admin")
+            await get_or_create_event(
+                taipei, "city-walk-2026", "Taipei City Walk 2026", "city", 3,
+                DEMO_TASKS_TAIPEI, CITY_CONFIG,
+            )
+            await get_or_create_event(
+                taipei, "xiangshan-hike", "Elephant Mountain Hike", "hiking", 2,
+                DEMO_TASKS_HIKING, HIKING_CONFIG,
+            )
+            await get_or_create_event(
+                mall, "summer-stamp-rally", "Summer Stamp Rally", "shopping", 2,
+                DEMO_TASKS_MALL, SHOPPING_CONFIG,
+            )
 
         await session.commit()
-        logger.info("seed_complete", tenants=["taipei", "riverside-mall"])
+        logger.info("seed_complete", demo_tenants=settings.seed_demo_tenants)
 
     await engine.dispose()
 

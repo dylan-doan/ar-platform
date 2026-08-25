@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     # --- ops ----------------------------------------------------------------
     run_migrations_on_start: bool = False
     seed_on_start: bool = False
+    # Demo tenants (taipei / riverside-mall) — local dev only; never on prod.
+    seed_demo_tenants: bool = False
 
     @property
     def cors_origin_list(self) -> list[str]:
